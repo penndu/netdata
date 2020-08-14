@@ -265,6 +265,12 @@ LIBS="${PTHREAD_LIBS} ${LIBS}"
 CFLAGS="${CFLAGS} ${PTHREAD_CFLAGS}"
 CC="${PTHREAD_CC}"
 
+AC_CHECK_LIB(
+[pthread],
+[pthread_getname_np],
+[AC_DEFINE([HAVE_PTHREAD_GETNAME_NP], [1], [Is set if pthread_getname_np is available])]
+)
+
 
 # -----------------------------------------------------------------------------
 # libm
@@ -371,6 +377,20 @@ AC_CHECK_LIB(
     [SSL_LIBS="-lcrypto -lssl"]
 )
 
+AC_CHECK_LIB(
+    [crypto],
+    [X509_VERIFY_PARAM_set1_host],
+    [ssl_host_validation="yes"],
+    [ssl_host_validation="no"]
+)
+
+if test "${ssl_host_validation}" = "no"; then
+    AC_DEFINE([HAVE_X509_VERIFY_PARAM_set1_host], [0], [ssl host validation])
+    AC_MSG_WARN([DISABLING SSL HOSTNAME VALIDATION BECAUSE IT IS NOT AVAILABLE ON THIS SYSTEM.])
+else
+    AC_DEFINE([HAVE_X509_VERIFY_PARAM_set1_host], [1], [ssl host validation])
+fi
+
 # -----------------------------------------------------------------------------
 # JSON-C library
 
@@ -384,17 +404,6 @@ PKG_CHECK_MODULES([JSON],[json-c],AC_CHECK_LIB(
     )
 
 OPTIONAL_JSONC_LIBS="${JSONC_LIBS}"
-
-# -----------------------------------------------------------------------------
-# VFS plugin libs
-
-AC_CHECK_LIB(
-    [dl],
-    [dlopen],
-    [EBPF_LIBS="-ldl"]
-)
-
-OPTIONAL_EBPF_LIBS="${EBPF_LIBS}"
 
 # -----------------------------------------------------------------------------
 # DB engine and HTTPS
@@ -586,7 +595,7 @@ if test "$enable_cloud" != "no"; then
     AC_MSG_CHECKING([if libmosquitto static lib is present (and builds)])
     if test -f "externaldeps/mosquitto/libmosquitto.a"; then
         LIBS_BKP="${LIBS}"
-        LIBS="externaldeps/mosquitto/libmosquitto.a ${OPTIONAL_SSL_LIBS}"
+        LIBS="externaldeps/mosquitto/libmosquitto.a ${OPTIONAL_SSL_LIBS} ${LIBS_BKP}"
         AC_LINK_IFELSE([AC_LANG_SOURCE([[#include "externaldeps/mosquitto/mosquitto.h"
                                          int main (int argc, char **argv) {
                                              int m,mm,r;
@@ -937,8 +946,34 @@ AM_CONDITIONAL([ENABLE_PLUGIN_PERF], [test "${enable_plugin_perf}" = "yes"])
 # -----------------------------------------------------------------------------
 # ebpf.plugin
 
+PKG_CHECK_MODULES(
+    [LIBELF],
+    [libelf],
+    [have_libelf=yes],
+    [have_libelf=no]
+)
+
+AC_CHECK_TYPE(
+    [struct bpf_prog_info],
+    [have_bpf=yes],
+    [have_bpf=no],
+    [#include <linux/bpf.h>]
+)
+
+AC_CHECK_FILE(
+    externaldeps/libbpf/libbpf.a,
+    [have_libbpf=yes],
+    [have_libbpf=no]
+)
+
 AC_MSG_CHECKING([if ebpf.plugin should be enabled])
-if test "${build_target}" == "linux" -a "${EBPF_LIBS}"; then
+if test "${build_target}" = "linux" -a \
+        "${have_libelf}" = "yes" -a \
+        "${have_bpf}" = "yes" -a \
+        "${have_libbpf}" = "yes"; then
+    OPTIONAL_BPF_CFLAGS="${LIBELF_CFLAGS} -I externaldeps/libbpf/include"
+    OPTIONAL_BPF_LIBS="externaldeps/libbpf/libbpf.a ${LIBELF_LIBS}"
+    AC_DEFINE([HAVE_LIBBPF], [1], [libbpf usability])
     enable_ebpf="yes"
 else
     enable_ebpf="no"
@@ -1310,7 +1345,7 @@ AC_SUBST([webdir])
 CFLAGS="${CFLAGS} ${OPTIONAL_MATH_CFLAGS} ${OPTIONAL_NFACCT_CFLAGS} ${OPTIONAL_ZLIB_CFLAGS} ${OPTIONAL_UUID_CFLAGS} \
     ${OPTIONAL_LIBCAP_CFLAGS} ${OPTIONAL_IPMIMONITORING_CFLAGS} ${OPTIONAL_CUPS_CFLAGS} ${OPTIONAL_XENSTAT_FLAGS} \
     ${OPTIONAL_KINESIS_CFLAGS} ${OPTIONAL_PUBSUB_CFLAGS} ${OPTIONAL_PROMETHEUS_REMOTE_WRITE_CFLAGS} \
-    ${OPTIONAL_MONGOC_CFLAGS} ${LWS_CFLAGS} ${OPTIONAL_JSONC_STATIC_CFLAGS}"
+    ${OPTIONAL_MONGOC_CFLAGS} ${LWS_CFLAGS} ${OPTIONAL_JSONC_STATIC_CFLAGS} ${OPTIONAL_BPF_CFLAGS}"
 
 CXXFLAGS="${CFLAGS} ${CXX11FLAG}"
 
@@ -1332,7 +1367,6 @@ AC_SUBST([OPTIONAL_UV_LIBS])
 AC_SUBST([OPTIONAL_LZ4_LIBS])
 AC_SUBST([OPTIONAL_JUDY_LIBS])
 AC_SUBST([OPTIONAL_SSL_LIBS])
-AC_SUBST([OPTIONAL_EBPF_LIBS])
 AC_SUBST([OPTIONAL_JSONC_LIBS])
 AC_SUBST([OPTIONAL_NFACCT_CFLAGS])
 AC_SUBST([OPTIONAL_NFACCT_LIBS])
@@ -1340,6 +1374,8 @@ AC_SUBST([OPTIONAL_ZLIB_CFLAGS])
 AC_SUBST([OPTIONAL_ZLIB_LIBS])
 AC_SUBST([OPTIONAL_UUID_CFLAGS])
 AC_SUBST([OPTIONAL_UUID_LIBS])
+AC_SUBST([OPTIONAL_BPF_CFLAGS])
+AC_SUBST([OPTIONAL_BPF_LIBS])
 AC_SUBST([OPTIONAL_MQTT_LIBS])
 AC_SUBST([OPTIONAL_LIBCAP_CFLAGS])
 AC_SUBST([OPTIONAL_LIBCAP_LIBS])
@@ -1423,6 +1459,8 @@ AC_CONFIG_FILES([
     daemon/Makefile
     database/Makefile
     database/engine/Makefile
+    database/engine/metadata_log/Makefile
+    database/engine/global_uuid_map/Makefile
     diagrams/Makefile
     exporting/Makefile
     exporting/graphite/Makefile

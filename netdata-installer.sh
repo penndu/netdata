@@ -73,28 +73,8 @@ else
   source "${NETDATA_SOURCE_DIR}/packaging/installer/functions.sh" || exit 1
 fi
 
-download_tarball() {
-  url="${1}"
-  dest="${2}"
-  name="${3}"
-  opt="${4}"
-
-  if command -v curl > /dev/null 2>&1; then
-    run curl -sSL --connect-timeout 10 --retry 3 "${url}" > "${dest}"
-  elif command -v wget > /dev/null 2>&1; then
-    run wget -T 15 -O - "${url}" > "${dest}"
-  else
-    echo >&2
-    echo >&2 "Downloading ${name} from '${url}' failed because of missing mandatory packages."
-    echo >&2 "Either add packages or disable it by issuing '--disable-${opt}' in the installer"
-    echo >&2
-
-    run_failed "I need curl or wget to proceed, but neither is available on this system."
-  fi
-}
-
 download_go() {
-  download_tarball "${1}" "${2}" "go.d plugin" "go"
+  download_file "${1}" "${2}" "go.d plugin" "go"
 }
 
 # make sure we save all commands we run
@@ -255,6 +235,7 @@ while [ -n "${1}" ]; do
   case "${1}" in
     "--zlib-is-really-here") LIBS_ARE_HERE=1 ;;
     "--libs-are-really-here") LIBS_ARE_HERE=1 ;;
+    "--dont-scrub-cflags-even-though-it-may-break-things") DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS=1 ;;
     "--dont-start-it") DONOTSTART=1 ;;
     "--dont-wait") DONOTWAIT=1 ;;
     "--auto-update" | "-u") AUTOUPDATE=1 ;;
@@ -279,6 +260,7 @@ while [ -n "${1}" ]; do
     "--disable-x86-sse") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-x86-sse/} --disable-x86-sse" ;;
     "--disable-telemetry") NETDATA_DISABLE_TELEMETRY=1 ;;
     "--disable-go") NETDATA_DISABLE_GO=1 ;;
+    "--enable-ebpf") NETDATA_DISABLE_EBPF=0 ;;
     "--disable-ebpf") NETDATA_DISABLE_EBPF=1 ;;
     "--disable-cloud")
       if [ -n "${NETDATA_REQUIRE_CLOUD}" ]; then
@@ -315,6 +297,13 @@ while [ -n "${1}" ]; do
   esac
   shift 1
 done
+
+make="make"
+# See: https://github.com/netdata/netdata/issues/9163
+if [ "$(uname -s)" = "FreeBSD" ]; then
+  make="gmake"
+  NETDATA_CONFIGURE_OPTIONS="$NETDATA_CONFIGURE_OPTIONS --disable-dependency-tracking"
+fi
 
 # replace multiple spaces with a single space
 NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//  / }"
@@ -363,7 +352,7 @@ if [ -z "$NETDATA_DISABLE_TELEMETRY" ]; then
   ${TPUT_YELLOW}${TPUT_BOLD}NOTE${TPUT_RESET}:
   Anonymous usage stats will be collected and sent to Google Analytics.
   To opt-out, pass --disable-telemetry option to the installer or export
-  the enviornment variable DO_NOT_TRACK to a non-zero or non-empty value
+  the environment variable DO_NOT_TRACK to a non-zero or non-empty value
   (e.g: export DO_NOT_TRACK=1).
 
 BANNER4
@@ -479,20 +468,26 @@ trap build_error EXIT
 # -----------------------------------------------------------------------------
 
 build_libmosquitto() {
+  local env_cmd=''
+
+  if [ -z "${DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS}" ]; then
+    env_cmd="env CFLAGS= CXXFLAGS= LDFLAGS="
+  fi
+
   if [ "$(uname -s)" = Linux ]; then
-    run env CFLAGS= CXXFLAGS= LDFLAGS= make -C "${1}/lib"
+    run ${env_cmd} make -C "${1}/lib"
   else
     pushd ${1} > /dev/null || return 1
     if [ "$(uname)" = "Darwin" ] && [ -d /usr/local/opt/openssl ]; then
-      run env CFLAGS= CXXFLAGS= LDFLAGS= cmake \
+      run ${env_cmd} cmake \
         -D OPENSSL_ROOT_DIR=/usr/local/opt/openssl \
         -D OPENSSL_LIBRARIES=/usr/local/opt/openssl/lib \
         -D WITH_STATIC_LIBRARIES:boolean=YES \
         .
     else
-      run env CFLAGS= CXXFLAGS= LDFLAGS= cmake -D WITH_STATIC_LIBRARIES:boolean=YES .
+      run ${env_cmd} cmake -D WITH_STATIC_LIBRARIES:boolean=YES .
     fi
-    run env CFLAGS= CXXFLAGS= LDFLAGS= make -C lib
+    run ${env_cmd} make -C lib
     run mv lib/libmosquitto_static.a lib/libmosquitto.a
     popd || return 1
   fi
@@ -553,17 +548,24 @@ bundle_libmosquitto
 # -----------------------------------------------------------------------------
 
 build_libwebsockets() {
+  local env_cmd=''
+
+  if [ -z "${DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS}" ]; then
+    env_cmd="env CFLAGS= CXXFLAGS= LDFLAGS="
+  fi
+
   pushd "${1}" > /dev/null || exit 1
   if [ "$(uname)" = "Darwin" ] && [ -d /usr/local/opt/openssl ]; then
-    run env CFLAGS= CXXFLAGS= LDFLAGS= cmake \
+    run ${env_cmd} cmake \
       -D OPENSSL_ROOT_DIR=/usr/local/opt/openssl \
       -D OPENSSL_LIBRARIES=/usr/local/opt/openssl/lib \
       -D LWS_WITH_SOCKS5:bool=ON \
+      $CMAKE_FLAGS \
       .
   else
-    run env CFLAGS= CXXFLAGS= LDFLAGS= cmake -D LWS_WITH_SOCKS5:bool=ON .
+    run ${env_cmd} cmake -D LWS_WITH_SOCKS5:bool=ON $CMAKE_FLAGS .
   fi
-  run env CFLAGS= CXXFLAGS= LDFLAGS= make
+  run ${env_cmd} make
   popd > /dev/null || exit 1
 }
 
@@ -627,9 +629,15 @@ bundle_libwebsockets
 # -----------------------------------------------------------------------------
 
 build_jsonc() {
+  local env_cmd=''
+
+  if [ -z "${DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS}" ]; then
+    env_cmd="env CFLAGS= CXXFLAGS= LDFLAGS="
+  fi
+
   pushd "${1}" > /dev/null || exit 1
-  run env CFLAGS= CXXFLAGS= LDFLAGS= cmake -DBUILD_SHARED_LIBS=OFF .
-  run env CFLAGS= CXXFLAGS= LDFLAGS= make
+  run ${env_cmd} cmake -DBUILD_SHARED_LIBS=OFF .
+  run ${env_cmd} make
   popd > /dev/null || exit 1
 }
 
@@ -692,6 +700,71 @@ bundle_jsonc() {
 bundle_jsonc
 
 # -----------------------------------------------------------------------------
+
+build_libbpf() {
+  pushd "${1}/src" > /dev/null || exit 1
+  run env CFLAGS= CXXFLAGS= LDFLAGS= BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=.. make install
+  popd > /dev/null || exit 1
+}
+
+copy_libbpf() {
+  target_dir="${PWD}/externaldeps/libbpf"
+
+  if [ "$(uname -m)" = x86_64 ]; then
+    lib_subdir="lib64"
+  else
+    lib_subdir="lib"
+  fi
+
+  run mkdir -p "${target_dir}" || return 1
+
+  run cp "${1}/usr/${lib_subdir}/libbpf.a" "${target_dir}/libbpf.a" || return 1
+  run cp -r "${1}/usr/include" "${target_dir}" || return 1
+}
+
+bundle_libbpf() {
+  if { [ -n "${NETDATA_DISABLE_EBPF}" ] && [ ${NETDATA_DISABLE_EBPF} = 1 ]; } || [ "$(uname -s)" != Linux ]; then
+    return 0
+  fi
+
+  progress "Prepare libbpf"
+
+  LIBBPF_PACKAGE_VERSION="$(cat packaging/libbpf.version)"
+
+  tmp="$(mktemp -d -t netdata-libbpf-XXXXXX)"
+  LIBBPF_PACKAGE_BASENAME="v${LIBBPF_PACKAGE_VERSION}.tar.gz"
+
+  if fetch_and_verify "libbpf" \
+    "https://github.com/netdata/libbpf/archive/${LIBBPF_PACKAGE_BASENAME}" \
+    "${LIBBPF_PACKAGE_BASENAME}" \
+    "${tmp}" \
+    "${NETDATA_LOCAL_TARBALL_OVERRIDE_LIBBPF}"; then
+    if run tar -xf "${tmp}/${LIBBPF_PACKAGE_BASENAME}" -C "${tmp}" &&
+      build_libbpf "${tmp}/libbpf-${LIBBPF_PACKAGE_VERSION}" &&
+      copy_libbpf "${tmp}/libbpf-${LIBBPF_PACKAGE_VERSION}" &&
+      rm -rf "${tmp}"; then
+      run_ok "libbpf built and prepared."
+    else
+      run_failed "Failed to build libbpf."
+      if [ -n "${NETDATA_DISABLE_EBPF}" ] && [ ${NETDATA_DISABLE_EBPF} = 0 ]; then
+        exit 1
+      else
+        defer_error_highlighted "Failed to build libbpf. You may not be able to use eBPF plugin."
+      fi
+    fi
+  else
+    run_failed "Unable to fetch sources for libbpf."
+    if [ -n "${NETDATA_DISABLE_EBPF}" ] && [ ${NETDATA_DISABLE_EBPF} = 0 ]; then
+      exit 1
+    else
+      defer_error_highlighted "Unable to fetch sources for libbpf. You may not be able to use eBPF plugin."
+    fi
+  fi
+}
+
+bundle_libbpf
+
+# -----------------------------------------------------------------------------
 # If we have the dashboard switching logic, make sure we're on the classic
 # dashboard during the install (updates don't work correctly otherwise).
 if [ -x "${NETDATA_PREFIX}/usr/libexec/netdata-switch-dashboard.sh" ]; then
@@ -724,12 +797,12 @@ trap - EXIT
 # -----------------------------------------------------------------------------
 progress "Cleanup compilation directory"
 
-run make clean
+run $make clean
 
 # -----------------------------------------------------------------------------
 progress "Compile netdata"
 
-run make -j$(find_processors) || exit 1
+run $make -j$(find_processors) || exit 1
 
 # -----------------------------------------------------------------------------
 progress "Migrate configuration files for node.d.plugin and charts.d.plugin"
@@ -836,7 +909,7 @@ touch "${NETDATA_PREFIX}/etc/netdata/.installer-cleanup-of-stock-configs-done"
 # -----------------------------------------------------------------------------
 progress "Install netdata"
 
-run make install || exit 1
+run $make install || exit 1
 
 # -----------------------------------------------------------------------------
 progress "Fix generated files permissions"
@@ -1158,7 +1231,7 @@ govercomp() {
   for ((i = 0; i < ${#ver1[@]}; i++)); do
     if [ "${ver1[i]}" -gt "${ver2[i]}" ]; then
       return 1
-    elif [ "${ver1[i]}" -gt "${ver2[i]}" ]; then
+    elif [ "${ver2[i]}" -gt "${ver1[i]}" ]; then
       return 2
     fi
   done
@@ -1355,7 +1428,7 @@ install_ebpf() {
   progress "Installing eBPF plugin"
 
   # Detect libc
-  libc="$(detect_libc)"
+  libc="${EBPF_LIBC:-"$(detect_libc)"}"
 
   EBPF_VERSION="$(cat packaging/ebpf.version)"
   EBPF_TARBALL="netdata-kernel-collector-${libc}-${EBPF_VERSION}.tar.xz"
@@ -1379,9 +1452,7 @@ install_ebpf() {
   # chown everything to root:netdata before we start copying out of our package
   run chown -R root:netdata "${tmp}"
 
-  run cp -a -v "${tmp}"/library/* "${NETDATA_PREFIX}"/usr/libexec/netdata/plugins.d
   run cp -a -v "${tmp}"/*netdata_ebpf_*.o "${NETDATA_PREFIX}"/usr/libexec/netdata/plugins.d
-  run cp -a -v "${tmp}"/libnetdata_ebpf.so.* "${NETDATA_PREFIX}"/usr/libexec/netdata/plugins.d
 
   rm -rf "${tmp}"
 

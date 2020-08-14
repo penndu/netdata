@@ -1,25 +1,29 @@
 <!--
-title: "Export metrics to external databases"
+title: "Exporting engine reference"
 description: "With the exporting engine, you can archive your Netdata metrics to multiple external databases for long-term storage or further analysis."
+sidebar_label: Reference guide
 custom_edit_url: https://github.com/netdata/netdata/edit/master/exporting/README.md
 -->
 
-# Exporting metrics to external databases
+# Exporting engine reference
 
-The exporting engine is an update for the former [backends](/backends/README.md) which is deprecated and will be deleted
-soon. It has a modular structure and supports metric exporting via multiple exporting connector instances at the same
-time. You can have different update intervals and filters configured for every exporting connector instance. The
-exporting engine has its own configuration file `exporting.conf`. Configuration is almost similar to
+Welcome to the exporting engine reference guide.
+
+This guide contains comprehensive information about enabling, configuring, and monitoring Netdata's exporting engine,
+which allows you to send metrics to more than 20 external time series databases.
+
+To learn the basics of locating and editing health configuration files, read up on [how to export
+metrics](/docs/export/README.md), and follow the [exporting
+quickstart](/docs/export/README.md#exporting-quickstart).
+
+The exporting engine is an update for the former [backends](/backends/README.md), which is deprecated and will be
+deleted soon. It has a modular structure and supports metric exporting via multiple exporting connector instances at the
+same time. You can have different update intervals and filters configured for every exporting connector instance. 
+
+The exporting engine has its own configuration file `exporting.conf`. Configuration is almost similar to
 [backends](/backends/README.md#configuration). The most important difference is that type of a connector should be
 specified in a section name before a colon and an instance name after the colon. Also, you can't use `host tags`
-anymore. Set your labels using the [`[host labels]`](/docs/tutorials/using-host-labels.md) section in `netdata.conf`.
-
-# Metrics long term archiving
-
-Netdata supports external databases and services for archiving the metrics, or providing long term dashboards, using
-Grafana or other tools, like this:
-
-![image](https://cloud.githubusercontent.com/assets/2662304/20649711/29f182ba-b4ce-11e6-97c8-ab2c0ab59833.png)
+anymore. Set your labels using the [`[host labels]`](/docs/guides/using-host-labels.md) section in `netdata.conf`.
 
 Since Netdata collects thousands of metrics per server per second, which would easily congest any database server when
 several Netdata servers are sending data to it, Netdata allows sending metrics at a lower frequency, by resampling them.
@@ -27,15 +31,18 @@ several Netdata servers are sending data to it, Netdata allows sending metrics a
 So, although Netdata collects metrics every second, it can send to the external database servers averages or sums every
 X seconds (though, it can send them per second if you need it to).
 
-## features
+## Features
 
 1.  Supported databases and services
 
     -   **graphite** (`plaintext interface`, used by **Graphite**, **InfluxDB**, **KairosDB**, **Blueflood**,
         **ElasticSearch** via logstash tcp input and the graphite codec, etc)
 
-        metrics are sent to the database server as `prefix.hostname.chart.dimension`. `prefix` is configured below,
+        Metrics are sent to the database server as `prefix.hostname.chart.dimension`. `prefix` is configured below,
         `hostname` is the hostname of the machine (can also be configured).
+
+        Learn more in our guide to [export and visualize Netdata metrics in
+        Graphite](/docs/guides/export/export-netdata-metrics-graphite.md).
 
     -   **opentsdb** (`telnet or HTTP interfaces`, used by **OpenTSDB**, **InfluxDB**, **KairosDB**, etc)
 
@@ -104,7 +111,7 @@ X seconds (though, it can send them per second if you need it to).
     their batches at the same time. You can set different update intervals for every exporting connector instance, but
     even in that case they can occasionally synchronize their batches for a moment.
 
-## configuration
+## Configuration
 
 In `/etc/netdata/exporting.conf` you should have something like this:
 
@@ -226,8 +233,8 @@ Options:
     of times within each pattern). The patterns are checked against the hostname (the localhost is always checked as
     `localhost`), allowing us to filter which hosts will be sent to the external database when this Netdata is a central
     Netdata aggregating multiple hosts. A pattern starting with `!` gives a negative match. So to match all hosts named
-    `*db*` except hosts containing `*slave*`, use `!*slave* *db*` (so, the order is important: the first pattern
-    matching the hostname will be used - positive or negative).
+    `*db*` except hosts containing `*child*`, use `!*child* *db*` (so, the order is important: the first
+    pattern matching the hostname will be used - positive or negative).
 
 -   `send charts matching = *` includes one or more space separated patterns, using `*` as wildcard (any number of times
     within each pattern). The patterns are checked against both chart id and chart name. A pattern starting with `!`
@@ -252,9 +259,10 @@ Options:
 > You can check how the host tags were parsed using the /api/v1/info API call. But, keep in mind that backends subsystem
 > is deprecated and will be deleted soon. Please move your existing tags to the `[host labels]` section.
 
-## monitoring operation
+## Exporting engine monitoring
 
-Netdata provides 5 charts:
+Netdata creates five charts in the dashboard, under the **Netdata Monitoring** section, to help you monitor the health
+and performance of the exporting engine itself:
 
 1.  **Buffered metrics**, the number of metrics Netdata added to the buffer for dispatching them to the
     external database server.
@@ -263,12 +271,12 @@ Netdata provides 5 charts:
 
 3.  **Exporting operations**, the number of operations performed by Netdata.
 
-4.  **Exporting thread CPU usage**, the CPU resources consumed by the Netdata thread, that is responsible for sending the
-    metrics to the external database server.
+4.  **Exporting thread CPU usage**, the CPU resources consumed by the Netdata thread, that is responsible for sending
+    the metrics to the external database server.
 
 ![image](https://cloud.githubusercontent.com/assets/2662304/20463536/eb196084-af3d-11e6-8ee5-ddbd3b4d8449.png)
 
-## alarms
+## Exporting engine alarms
 
 Netdata adds 3 alarms:
 

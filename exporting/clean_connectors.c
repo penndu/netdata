@@ -12,8 +12,10 @@ static void clean_instance_config(struct instance_config *config)
     if(!config)
         return;
 
+    freez((void *)config->type_name);
     freez((void *)config->name);
     freez((void *)config->destination);
+    freez((void *)config->prefix);
 
     simple_pattern_free(config->charts_pattern);
 

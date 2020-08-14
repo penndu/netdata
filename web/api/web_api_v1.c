@@ -349,7 +349,16 @@ inline int web_client_api_request_v1_charts(RRDHOST *host, struct web_client *w,
 
     buffer_flush(w->response.data);
     w->response.data->contenttype = CT_APPLICATION_JSON;
-    charts2json(host, w->response.data, 0);
+    charts2json(host, w->response.data, 0, 0);
+    return HTTP_RESP_OK;
+}
+
+inline int web_client_api_request_v1_archivedcharts(RRDHOST *host, struct web_client *w, char *url) {
+    (void)url;
+
+    buffer_flush(w->response.data);
+    w->response.data->contenttype = CT_APPLICATION_JSON;
+    charts2json(host, w->response.data, 0, 1);
     return HTTP_RESP_OK;
 }
 
@@ -769,6 +778,8 @@ static inline void web_client_api_request_v1_info_mirrored_hosts(BUFFER *wb) {
     int count = 0;
     rrd_rdlock();
     rrdhost_foreach_read(rc) {
+        if (rrdhost_flag_check(rc, RRDHOST_FLAG_ARCHIVED))
+            continue;
         if(count > 0) buffer_strcat(wb, ",\n");
         buffer_sprintf(wb, "\t\t\"%s\"", rc->hostname);
         count++;
@@ -915,6 +926,7 @@ static struct api_command {
         { "data",            0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_data            },
         { "chart",           0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_chart           },
         { "charts",          0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_charts          },
+        { "archivedcharts",  0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_archivedcharts  },
 
         // registry checks the ACL by itself, so we allow everything
         { "registry",        0, WEB_CLIENT_ACL_NOCHECK,   web_client_api_request_v1_registry        },
