@@ -29,6 +29,7 @@ fi
 # Pull in OpenSSL properly if on macOS
 if [ "$(uname -s)" = 'Darwin' ] && [ -d /usr/local/opt/openssl/include ]; then
   export C_INCLUDE_PATH="/usr/local/opt/openssl/include"
+  export LDFLAGS="-L/usr/local/opt/openssl@1.1/lib"
 fi
 
 # -----------------------------------------------------------------------------
@@ -39,6 +40,43 @@ fi
 
 # make sure /etc/profile does not change our current directory
 cd "${NETDATA_SOURCE_DIR}" || exit 1
+
+# -----------------------------------------------------------------------------
+# figure out an appropriate temporary directory
+_cannot_use_tmpdir() {
+  local testfile ret
+  testfile="$(TMPDIR="${1}" mktemp -q -t netdata-test.XXXXXXXXXX)"
+  ret=0
+
+  if [ -z "${testfile}" ]; then
+    return "${ret}"
+  fi
+
+  if printf '#!/bin/sh\necho SUCCESS\n' > "${testfile}"; then
+    if chmod +x "${testfile}"; then
+      if [ "$("${testfile}")" = "SUCCESS" ]; then
+        ret=1
+      fi
+    fi
+  fi
+
+  rm -f "${testfile}"
+  return "${ret}"
+}
+
+if [ -z "${TMPDIR}" ] || _cannot_use_tmpdir "${TMPDIR}"; then
+  if _cannot_use_tmpdir /tmp; then
+    if _cannot_use_tmpdir "${PWD}"; then
+      echo >&2
+      echo >&2 "Unable to find a usable temprorary directory. Please set \$TMPDIR to a path that is both writable and allows execution of files and try again."
+      exit 1
+    else
+      TMPDIR="${PWD}"
+    fi
+  else
+    TMPDIR="/tmp"
+  fi
+fi
 
 # -----------------------------------------------------------------------------
 # set up handling for deferred error messages
@@ -244,7 +282,10 @@ while [ -n "${1}" ]; do
     "--enable-plugin-freeipmi") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--enable-plugin-freeipmi/} --enable-plugin-freeipmi" ;;
     "--disable-plugin-freeipmi") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-plugin-freeipmi/} --disable-plugin-freeipmi" ;;
     "--disable-https") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-https/} --disable-https" ;;
-    "--disable-dbengine") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-dbengine/} --disable-dbengine" ;;
+    "--disable-dbengine")
+      NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-dbengine/} --disable-dbengine"
+      NETDATA_DISABLE_DBENGINE=1
+      ;;
     "--enable-plugin-nfacct") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--enable-plugin-nfacct/} --enable-plugin-nfacct" ;;
     "--disable-plugin-nfacct") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-plugin-nfacct/} --disable-plugin-nfacct" ;;
     "--enable-plugin-xenstat") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--enable-plugin-xenstat/} --enable-plugin-xenstat" ;;
@@ -261,7 +302,7 @@ while [ -n "${1}" ]; do
     "--disable-telemetry") NETDATA_DISABLE_TELEMETRY=1 ;;
     "--disable-go") NETDATA_DISABLE_GO=1 ;;
     "--enable-ebpf") NETDATA_DISABLE_EBPF=0 ;;
-    "--disable-ebpf") NETDATA_DISABLE_EBPF=1 ;;
+    "--disable-ebpf") NETDATA_DISABLE_EBPF=1 NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-ebpf/} --disable-ebpf" ;;
     "--disable-cloud")
       if [ -n "${NETDATA_REQUIRE_CLOUD}" ]; then
         echo "Cloud explicitly enabled, ignoring --disable-cloud."
@@ -280,6 +321,9 @@ while [ -n "${1}" ]; do
       ;;
     "--build-json-c")
       NETDATA_BUILD_JSON_C=1
+      ;;
+    "--build-judy")
+      NETDATA_BUILD_JUDY=1
       ;;
     "--install")
       NETDATA_PREFIX="${2}/netdata"
@@ -322,6 +366,10 @@ netdata_banner "real-time performance monitoring, done right!"
 cat << BANNER1
 
   You are about to build and install netdata to your system.
+
+  The build process will use ${TPUT_CYAN}${TMPDIR}${TPUT_RESET} for
+  any temporary files. You can override this by setting \$TMPDIR to a
+  writable directory where you can execute files.
 
   It will be installed at these locations:
 
@@ -625,6 +673,89 @@ bundle_libwebsockets() {
 }
 
 bundle_libwebsockets
+
+# -----------------------------------------------------------------------------
+
+build_judy() {
+  local env_cmd=''
+
+  if [ -z "${DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS}" ]; then
+    env_cmd="env CFLAGS= CXXFLAGS= LDFLAGS="
+  fi
+
+  pushd "${1}" > /dev/null || return 1
+  if run ${env_cmd} libtoolize --force --copy &&
+    run ${env_cmd} aclocal &&
+    run ${env_cmd} autoheader &&
+    run ${env_cmd} automake --add-missing --force --copy --include-deps &&
+    run ${env_cmd} autoconf &&
+    run ${env_cmd} ./configure &&
+    run ${env_cmd} make -C src &&
+    run ${env_cmd} ar -r src/libJudy.a src/Judy*/*.o; then
+    popd > /dev/null || return 1
+  else
+    popd > /dev/null || return 1
+    return 1
+  fi
+}
+
+copy_judy() {
+  target_dir="${PWD}/externaldeps/libJudy"
+
+  run mkdir -p "${target_dir}" || return 1
+
+  run cp "${1}/src/libJudy.a" "${target_dir}/libJudy.a" || return 1
+  run cp "${1}/src/Judy.h" "${target_dir}/Judy.h" || return 1
+}
+
+bundle_judy() {
+  # If --build-judy flag or no Judy on the system and we're building the dbengine, bundle our own libJudy.
+  # shellcheck disable=SC2235
+  if [ -n "${NETDATA_DISABLE_DBENGINE}" ] || ([ -z "${NETDATA_BUILD_JUDY}" ] && [ -e /usr/include/Judy.h ]); then
+    return 0
+  elif [ -n "${NETDATA_BUILD_JUDY}" ]; then
+    progress "User requested bundling of libJudy, building it now"
+  elif [ ! -e /usr/include/Judy.h ]; then
+    progress "/usr/include/Judy.h does not exist, but we need libJudy, building our own copy"
+  fi
+
+  progress "Prepare libJudy"
+
+  JUDY_PACKAGE_VERSION="$(cat packaging/judy.version)"
+
+  tmp="$(mktemp -d -t netdata-judy-XXXXXX)"
+  JUDY_PACKAGE_BASENAME="v${JUDY_PACKAGE_VERSION}.tar.gz"
+
+  if fetch_and_verify "judy" \
+    "https://github.com/netdata/libjudy/archive/${JUDY_PACKAGE_BASENAME}" \
+    "${JUDY_PACKAGE_BASENAME}" \
+    "${tmp}" \
+    "${NETDATA_LOCAL_TARBALL_OVERRIDE_JUDY}"; then
+    if run tar -xf "${tmp}/${JUDY_PACKAGE_BASENAME}" -C "${tmp}" &&
+      build_judy "${tmp}/libjudy-${JUDY_PACKAGE_VERSION}" &&
+      copy_judy "${tmp}/libjudy-${JUDY_PACKAGE_VERSION}" &&
+      rm -rf "${tmp}"; then
+      run_ok "libJudy built and prepared."
+      NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS} --with-libJudy=externaldeps/libJudy"
+    else
+      run_failed "Failed to build libJudy."
+      if [ -n "${NETDATA_BUILD_JUDY}" ]; then
+        exit 1
+      else
+        defer_error_highlighted "Failed to build libJudy. dbengine support will be disabled."
+      fi
+    fi
+  else
+    run_failed "Unable to fetch sources for libJudy."
+    if [ -n "${NETDATA_BUILD_JUDY}" ]; then
+      exit 1
+    else
+      defer_error_highlighted "Unable to fetch sources for libJudy. dbengine support will be disabled."
+    fi
+  fi
+}
+
+bundle_judy
 
 # -----------------------------------------------------------------------------
 
@@ -1390,6 +1521,12 @@ should_install_ebpf() {
   if [ "${NETDATA_DISABLE_EBPF:=0}" -eq 1 ]; then
     run_failed "eBPF explicitly disabled."
     defer_error "eBPF explicitly disabled."
+    return 1
+  fi
+
+  if [ "$(uname -s)" != "Linux" ]; then
+    run_failed "Currently eBPF is only supported on Linux."
+    defer_error "Currently eBPF is only supported on Linux."
     return 1
   fi
 

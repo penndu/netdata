@@ -66,12 +66,15 @@ dist_noinst_DATA = \
     packaging/go.d.checksums \
     packaging/jsonc.version \
     packaging/jsonc.checksums \
+    packaging/judy.version \
+    packaging/judy.checksums \
     packaging/libwebsockets.version \
     packaging/libwebsockets.checksums \
     packaging/mosquitto.version \
     packaging/mosquitto.checksums \
     packaging/bundle-dashboard.sh \
     packaging/bundle-ebpf.sh \
+    packaging/bundle-judy.sh \
     packaging/bundle-libbpf.sh \
     packaging/bundle-mosquitto.sh \
     packaging/check-kernel-config.sh \

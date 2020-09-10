@@ -167,6 +167,8 @@ RRDHOST *rrdhost_create(const char *hostname,
     netdata_rwlock_init(&host->rrdhost_rwlock);
     netdata_rwlock_init(&host->labels_rwlock);
 
+    netdata_mutex_init(&host->claimed_id_lock);
+
     rrdhost_init_hostname(host, hostname);
     rrdhost_init_machine_guid(host, guid);
 
@@ -571,6 +573,12 @@ RRDHOST *rrdhost_find_or_create(
            , rrdpush_send_charts_matching
            , system_info);
     }
+    if (host) {
+        rrdhost_wrlock(host);
+        rrdhost_flag_clear(host, RRDHOST_FLAG_ORPHAN);
+        host->senders_disconnected_time = 0;
+        rrdhost_unlock(host);
+    }
 
     rrdhost_cleanup_orphan_hosts_nolock(host);
 
@@ -858,6 +866,8 @@ void rrdhost_free(RRDHOST *host) {
     // ------------------------------------------------------------------------
     // free it
 
+    pthread_mutex_destroy(&host->claimed_id_lock);
+    freez(host->claimed_id);
     freez((void *)host->tags);
     free_host_labels(host->labels);
     freez((void *)host->os);
@@ -879,6 +889,10 @@ void rrdhost_free(RRDHOST *host) {
     netdata_rwlock_destroy(&host->labels_rwlock);
     netdata_rwlock_destroy(&host->health_log.alarm_log_rwlock);
     netdata_rwlock_destroy(&host->rrdhost_rwlock);
+
+#ifdef ENABLE_DBENGINE
+    free_uuid(&host->host_uuid);
+#endif
     freez(host);
 
     rrd_hosts_available--;
