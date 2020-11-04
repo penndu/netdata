@@ -35,6 +35,7 @@ static struct {
         , {"match_names"     , 0    , RRDR_OPTION_MATCH_NAMES}
         , {"match-names"     , 0    , RRDR_OPTION_MATCH_NAMES}
         , {"showcustomvars"  , 0    , RRDR_OPTION_CUSTOM_VARS}
+        , {"allow_past"      , 0    , RRDR_OPTION_ALLOW_PAST}
         , {                  NULL, 0, 0}
 };
 
@@ -397,7 +398,8 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     , *before_str = NULL
     , *after_str = NULL
     , *group_time_str = NULL
-    , *points_str = NULL;
+    , *points_str = NULL
+    , *context = NULL;
 
     int group = RRDR_GROUPING_AVERAGE;
     uint32_t format = DATASOURCE_JSON;
@@ -416,7 +418,8 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
         // name and value are now the parameters
         // they are not null and not empty
 
-        if(!strcmp(name, "chart")) chart = value;
+        if(!strcmp(name, "context")) context = value;
+        else if(!strcmp(name, "chart")) chart = value;
         else if(!strcmp(name, "dimension") || !strcmp(name, "dim") || !strcmp(name, "dimensions") || !strcmp(name, "dims")) {
             if(!dimensions) dimensions = buffer_create(100);
             buffer_strcat(dimensions, "|");
@@ -482,20 +485,46 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     fix_google_param(responseHandler);
     fix_google_param(outFileName);
 
-    if(!chart || !*chart) {
+    RRDSET *st = NULL;
+
+    if((!chart || !*chart) && (!context)) {
         buffer_sprintf(w->response.data, "No chart id is given at the request.");
         goto cleanup;
     }
 
-    RRDSET *st = rrdset_find(host, chart);
-    if(!st) st = rrdset_find_byname(host, chart);
-    if(!st) {
-        buffer_strcat(w->response.data, "Chart is not found: ");
-        buffer_strcat_htmlescape(w->response.data, chart);
+    struct context_param  *context_param_list = NULL;
+    if (context && !chart) {
+        RRDSET *st1;
+        uint32_t context_hash = simple_hash(context);
+        rrdhost_rdlock(localhost);
+        rrdset_foreach_read(st1, localhost) {
+            if (st1->hash_context == context_hash && !strcmp(st1->context, context))
+                build_context_param_list(&context_param_list, st1);
+        }
+        rrdhost_unlock(localhost);
+        if (likely(context_param_list && context_param_list->rd))  // Just set the first one
+            st = context_param_list->rd->rrdset;
+    }
+    else {
+        st = rrdset_find(host, chart);
+        if (!st)
+            st = rrdset_find_byname(host, chart);
+        if (likely(st))
+            st->last_accessed_time = now_realtime_sec();
+    }
+
+    if (!st && !context_param_list) {
+        if (context && !chart) {
+            buffer_strcat(w->response.data, "Context is not found: ");
+            buffer_strcat_htmlescape(w->response.data, context);
+        }
+        else {
+            buffer_strcat(w->response.data, "Chart is not found: ");
+            buffer_strcat_htmlescape(w->response.data, chart);
+        }
         ret = HTTP_RESP_NOT_FOUND;
         goto cleanup;
     }
-    st->last_accessed_time = now_realtime_sec();
 
     long long before = (before_str && *before_str)?str2l(before_str):0;
     long long after  = (after_str  && *after_str) ?str2l(after_str):-600;
@@ -540,7 +569,9 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     }
 
     ret = rrdset2anything_api_v1(st, w->response.data, dimensions, format, points, after, before, group, group_time
-                                 , options, &last_timestamp_in_data);
+                                 , options, &last_timestamp_in_data, context_param_list);
+
+    free_context_param_list(&context_param_list);
 
     if(format == DATASOURCE_DATATABLE_JSONP) {
         if(google_timestamp < last_timestamp_in_data)
@@ -620,6 +651,9 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
 /*
     int redirects = 0;
 */
+
+	// Don't cache registry responses
+    buffer_no_cacheable(w->response.data);
 
     while(url) {
         char *value = mystrsep(&url, "&");

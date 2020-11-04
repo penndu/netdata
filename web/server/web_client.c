@@ -199,6 +199,7 @@ void web_client_request_done(struct web_client *w) {
         w->response.zstream.total_in = 0;
         w->response.zstream.total_out = 0;
         w->response.zinitialized = 0;
+        w->flags &= ~WEB_CLIENT_CHUNKED_TRANSFER;
     }
 #endif // NETDATA_WITH_ZLIB
 }
@@ -501,6 +502,7 @@ void web_client_enable_deflate(struct web_client *w, int gzip) {
     w->response.zsent = 0;
     w->response.zoutput = 1;
     w->response.zinitialized = 1;
+    w->flags |= WEB_CLIENT_CHUNKED_TRANSFER;
 
     debug(D_DEFLATE, "%llu: Initialized compression.", w->id);
 }
@@ -812,10 +814,12 @@ static inline char *http_header_parse(struct web_client *w, char *s, int parse_u
         }
     }
 #endif /* NETDATA_WITH_ZLIB */
+#ifdef ENABLE_HTTPS
     else if(hash == hash_forwarded_proto && !strcasecmp(s, "X-Forwarded-Proto")) {
         if(strcasestr(v, "https"))
             w->ssl.flags |= NETDATA_SSL_PROXY_HTTPS;
     }
+#endif
     else if(hash == hash_forwarded_host && !strcasecmp(s, "X-Forwarded-Host")){
         strncpyz(w->forwarded_host, v, ((size_t)(ve - v) < sizeof(w->server_host)-1 ? (size_t)(ve - v) : sizeof(w->server_host)-1));
     }
@@ -1238,12 +1242,11 @@ void web_client_build_http_header(struct web_client *w) {
         buffer_strcat(w->response.header_output, buffer_tostring(w->response.header));
 
     // headers related to the transfer method
-    if(likely(w->response.zoutput)) {
-        buffer_strcat(w->response.header_output,
-                "Content-Encoding: gzip\r\n"
-                        "Transfer-Encoding: chunked\r\n"
-        );
-    }
+    if(likely(w->response.zoutput))
+        buffer_strcat(w->response.header_output, "Content-Encoding: gzip\r\n");
+
+    if(likely(w->flags & WEB_CLIENT_CHUNKED_TRANSFER))
+        buffer_strcat(w->response.header_output, "Transfer-Encoding: chunked\r\n");
     else {
         if(likely((w->response.data->len || w->response.rlen))) {
             // we know the content length, put it
@@ -1351,7 +1354,11 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
         if(!url) { //no delim found
             debug(D_WEB_CLIENT, "%llu: URL doesn't end with / generating redirect.", w->id);
             char *protocol, *url_host;
+#ifdef ENABLE_HTTPS
             protocol = ((w->ssl.conn && !w->ssl.flags) || w->ssl.flags & NETDATA_SSL_PROXY_HTTPS) ? "https" : "http";
+#else
+            protocol = "http";
+#endif
             url_host = (!w->forwarded_host[0])?w->server_host:w->forwarded_host;
             buffer_sprintf(w->response.header, "Location: %s://%s%s/\r\n", protocol, url_host, w->last_url);
             buffer_strcat(w->response.data, "Permanent redirect");

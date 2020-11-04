@@ -205,6 +205,8 @@ USAGE: ${PROGRAM} [options]
   --dont-start-it            Do not (re)start netdata after installation
   --dont-wait                Run installation in non-interactive mode
   --auto-update or -u        Install netdata-updater in cron to update netdata automatically once per day
+  --auto-update-type         Override the auto-update scheduling mechanism detection, currently supported types
+                             are: systemd, interval, crontab
   --stable-channel           Use packages from GitHub release pages instead of GCS (nightly updates).
                              This results in less frequent updates.
   --nightly-channel          Use most recent nightly udpates instead of GitHub releases.
@@ -232,6 +234,7 @@ USAGE: ${PROGRAM} [options]
   --enable-lto               Enable Link-Time-Optimization. Default: enabled
   --disable-lto
   --disable-x86-sse          Disable SSE instructions. By default SSE optimizations are enabled.
+  --use-system-lws           Use a system copy of libwebsockets instead of bundling our own (default is to use the bundled copy).
   --zlib-is-really-here or
   --libs-are-really-here     If you get errors about missing zlib or libuuid but you know it is available, you might
                              have a broken pkg-config. Use this option to proceed without checking pkg-config.
@@ -273,10 +276,23 @@ while [ -n "${1}" ]; do
   case "${1}" in
     "--zlib-is-really-here") LIBS_ARE_HERE=1 ;;
     "--libs-are-really-here") LIBS_ARE_HERE=1 ;;
+    "--use-system-lws") USE_SYSTEM_LWS=1 ;;
     "--dont-scrub-cflags-even-though-it-may-break-things") DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS=1 ;;
     "--dont-start-it") DONOTSTART=1 ;;
     "--dont-wait") DONOTWAIT=1 ;;
     "--auto-update" | "-u") AUTOUPDATE=1 ;;
+    "--auto-update-type")
+      AUTO_UPDATE_TYPE="$(echo "${2}" | tr '[:upper:]' '[:lower:]')"
+      case "${AUTO_UPDATE_TYPE}" in
+        systemd|interval|crontab)
+          shift 1
+          ;;
+        *)
+          echo "Unrecognized value for --auto-update-type. Valid values are: systemd, interval, crontab"
+          exit 1
+          ;;
+      esac
+      ;;
     "--stable-channel") RELEASE_CHANNEL="stable" ;;
     "--nightly-channel") RELEASE_CHANNEL="nightly" ;;
     "--enable-plugin-freeipmi") NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--enable-plugin-freeipmi/} --enable-plugin-freeipmi" ;;
@@ -627,7 +643,7 @@ copy_libwebsockets() {
 }
 
 bundle_libwebsockets() {
-  if [ -n "${NETDATA_DISABLE_CLOUD}" ]; then
+  if [ -n "${NETDATA_DISABLE_CLOUD}" ] || [ -n "${USE_SYSTEM_LWS}" ]; then
     return 0
   fi
 
@@ -654,6 +670,7 @@ bundle_libwebsockets() {
       copy_libwebsockets "${tmp}/libwebsockets-${LIBWEBSOCKETS_PACKAGE_VERSION}" &&
       rm -rf "${tmp}"; then
       run_ok "libwebsockets built and prepared."
+      NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS} --with-bundled-lws=externaldeps/libwebsockets"
     else
       run_failed "Failed to build libwebsockets."
       if [ -n "${NETDATA_REQUIRE_CLOUD}" ]; then
@@ -1045,7 +1062,7 @@ run $make install || exit 1
 # -----------------------------------------------------------------------------
 progress "Fix generated files permissions"
 
-run find ./system/ -type f -a \! -name \*.in -a \! -name Makefile\* -a \! -name \*.conf -a \! -name \*.service -a \! -name \*.logrotate -exec chmod 755 {} \;
+run find ./system/ -type f -a \! -name \*.in -a \! -name Makefile\* -a \! -name \*.conf -a \! -name \*.service -a \! -name \*.timer -a \! -name \*.logrotate -exec chmod 755 {} \;
 
 # -----------------------------------------------------------------------------
 progress "Creating standard user and groups for netdata"
@@ -1619,7 +1636,7 @@ progress "Install netdata at system init"
 # By default we assume the shutdown/startup of the Netdata Agent are effectively
 # without any system supervisor/init like SystemD or SysV. So we assume the most
 # basic startup/shutdown commands...
-NETDATA_STOP_CMD="${NETDATA_PREFIX}/usr/bin/netdatacli shutdown-agent"
+NETDATA_STOP_CMD="${NETDATA_PREFIX}/usr/sbin/netdatacli shutdown-agent"
 NETDATA_START_CMD="${NETDATA_PREFIX}/usr/sbin/netdata"
 
 if grep -q docker /proc/1/cgroup > /dev/null 2>&1; then
@@ -1796,7 +1813,7 @@ install_netdata_updater || run_failed "Cannot install netdata updater tool."
 
 progress "Check if we must enable/disable the netdata updater tool"
 if [ "${AUTOUPDATE}" = "1" ]; then
-  enable_netdata_updater || run_failed "Cannot enable netdata updater tool"
+  enable_netdata_updater ${AUTO_UPDATE_TYPE} || run_failed "Cannot enable netdata updater tool"
 else
   disable_netdata_updater || run_failed "Cannot disable netdata updater tool"
 fi

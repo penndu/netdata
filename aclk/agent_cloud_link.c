@@ -7,6 +7,10 @@
 #include "aclk_common.h"
 #include "aclk_stats.h"
 
+#ifdef ENABLE_ACLK
+#include <libwebsockets.h>
+#endif
+
 int aclk_shutting_down = 0;
 
 // Other global state
@@ -18,7 +22,6 @@ static char *aclk_password = NULL;
 static char *global_base_topic = NULL;
 static int aclk_connecting = 0;
 int aclk_force_reconnect = 0;       // Indication from lower layers
-int aclk_kill_link = 0;             // Tell the agent to tear down the link
 usec_t aclk_session_us = 0;         // Used by the mqtt layer
 time_t aclk_session_sec = 0;        // Used by the mqtt layer
 
@@ -720,7 +723,7 @@ int private_decrypt(unsigned char * enc_data, int data_len, unsigned char *decry
     return result;
 }
 
-void aclk_get_challenge(char *aclk_hostname, char *aclk_port)
+void aclk_get_challenge(char *aclk_hostname, int port)
 {
     char *data_buffer = mallocz(NETDATA_WEB_RESPONSE_INITIAL_SIZE);
     debug(D_ACLK, "Performing challenge-response sequence");
@@ -739,8 +742,8 @@ void aclk_get_challenge(char *aclk_hostname, char *aclk_port)
     }
     char url[1024];
     sprintf(url, "/api/v1/auth/node/%s/challenge", agent_id);
-    info("Retrieving challenge from cloud: %s %s %s", aclk_hostname, aclk_port, url);
-    if(aclk_send_https_request("GET", aclk_hostname, aclk_port, url, data_buffer, NETDATA_WEB_RESPONSE_INITIAL_SIZE, NULL))
+    info("Retrieving challenge from cloud: %s %d %s", aclk_hostname, port, url);
+    if(aclk_send_https_request("GET", aclk_hostname, port, url, data_buffer, NETDATA_WEB_RESPONSE_INITIAL_SIZE, NULL))
     {
         error("Challenge failed: %s", data_buffer);
         goto CLEANUP;
@@ -777,7 +780,7 @@ void aclk_get_challenge(char *aclk_hostname, char *aclk_port)
     debug(D_ACLK, "Password phase: %s",response_json);
     // TODO - host
     sprintf(url, "/api/v1/auth/node/%s/password", agent_id);
-    if(aclk_send_https_request("POST", aclk_hostname, aclk_port, url, data_buffer, NETDATA_WEB_RESPONSE_INITIAL_SIZE, response_json))
+    if(aclk_send_https_request("POST", aclk_hostname, port, url, data_buffer, NETDATA_WEB_RESPONSE_INITIAL_SIZE, response_json))
     {
         error("Challenge-response failed: %s", data_buffer);
         goto CLEANUP;
@@ -816,24 +819,42 @@ CLEANUP:
 #pragma endregion
 #endif
 
-static void aclk_try_to_connect(char *hostname, char *port, int port_num)
+static void aclk_try_to_connect(char *hostname, int port)
 {
+    int rc;
+
+// this is usefull for developers working on ACLK
+// allows connecting agent to any MQTT broker
+// for debugging, development and testing purposes
+#ifndef ACLK_DISABLE_CHALLENGE
     if (!aclk_private_key) {
-            error("Cannot try to establish the agent cloud link - no private key available!");
-            return;
+        error("Cannot try to establish the agent cloud link - no private key available!");
+        return;
     }
+#endif
+
     info("Attempting to establish the agent cloud link");
+#ifdef ACLK_DISABLE_CHALLENGE
+    error("Agent built with ACLK_DISABLE_CHALLENGE. This is for testing "
+          "and development purposes only. Warranty void. Won't be able "
+          "to connect to Netdata Cloud.");
+    if (aclk_password == NULL)
+        aclk_password = strdupz("anon");
+#else
     aclk_get_challenge(hostname, port);
     if (aclk_password == NULL)
         return;
-    int rc;
+#endif
+
     aclk_connecting = 1;
     create_publish_base_topic();
+
     ACLK_SHARED_STATE_LOCK;
     aclk_shared_state.version_neg = 0;
     aclk_shared_state.version_neg_wait_till = 0;
     ACLK_SHARED_STATE_UNLOCK;
-    rc = mqtt_attempt_connection(hostname, port_num, aclk_username, aclk_password);
+
+    rc = mqtt_attempt_connection(hostname, port, aclk_username, aclk_password);
     if (unlikely(rc)) {
         error("Failed to initialize the agent cloud link library");
     }
@@ -887,6 +908,16 @@ void *aclk_main(void *ptr)
     return NULL;
 #endif
 
+#ifndef LWS_WITH_SOCKS5
+    ACLK_PROXY_TYPE proxy_type;
+    aclk_get_proxy(&proxy_type);
+    if(proxy_type == PROXY_TYPE_SOCKS5) {
+        error("Disabling ACLK due to requested SOCKS5 proxy.");
+        static_thread->enabled = NETDATA_MAIN_THREAD_EXITED;
+        return NULL;
+    }
+#endif
+
     info("Waiting for netdata to be ready");
     while (!netdata_ready) {
         sleep_usec(USEC_PER_MS * 300);
@@ -901,7 +932,9 @@ void *aclk_main(void *ptr)
         }
     }
 
-    query_threads.count = config_get_number(CONFIG_SECTION_CLOUD, "query thread count", 2);
+    query_threads.count = MIN(processors/2, 6);
+    query_threads.count = MAX(query_threads.count, 2);
+    query_threads.count = config_get_number(CONFIG_SECTION_CLOUD, "query thread count", query_threads.count);
     if(query_threads.count < 1) {
         error("You need at least one query thread. Overriding configured setting of \"%d\"", query_threads.count);
         query_threads.count = 1;
@@ -921,8 +954,7 @@ void *aclk_main(void *ptr)
     }
 
     char *aclk_hostname = NULL; // Initializers are over-written but prevent gcc complaining about clobbering.
-    char *aclk_port = NULL;
-    uint32_t port_num = 0;
+    int port_num = 0;
     info("Waiting for netdata to be claimed");
     while(1) {
         char *agent_id = is_agent_claimed();
@@ -940,15 +972,10 @@ void *aclk_main(void *ptr)
             error("Do not move the cloud base url out of post_conf_load!!");
             goto exited;
         }
-        if (aclk_decode_base_url(cloud_base_url, &aclk_hostname, &aclk_port)) {
+        if (aclk_decode_base_url(cloud_base_url, &aclk_hostname, &port_num))
             error("Agent is claimed but the configuration is invalid, please fix");
-        }
-        else
-        {
-            port_num = atoi(aclk_port);     // SSL library uses the string, MQTT uses the numeric value
-            if (!create_private_key() && !_mqtt_lib_init())
+        else if (!create_private_key() && !_mqtt_lib_init())
                 break;
-        }
 
         for (int i=0; i<60; i++) {
             if (netdata_exit)
@@ -983,7 +1010,7 @@ void *aclk_main(void *ptr)
         }
         if (unlikely(!netdata_exit && !aclk_connected && !aclk_force_reconnect)) {
             if (unlikely(!first_init)) {
-                aclk_try_to_connect(aclk_hostname, aclk_port, port_num);
+                aclk_try_to_connect(aclk_hostname, port_num);
                 first_init = 1;
             } else {
                 if (aclk_connecting == 0) {
@@ -994,7 +1021,7 @@ void *aclk_main(void *ptr)
                     }
                     if (now_realtime_usec() >= reconnect_expiry) {
                         reconnect_expiry = 0;
-                        aclk_try_to_connect(aclk_hostname, aclk_port, port_num);
+                        aclk_try_to_connect(aclk_hostname, port_num);
                     }
                     sleep_usec(USEC_PER_MS * 100);
                 }
@@ -1032,7 +1059,6 @@ exited:
     freez(aclk_username);
     freez(aclk_password);
     freez(aclk_hostname);
-    freez(aclk_port);
     if (aclk_private_key != NULL)
         RSA_free(aclk_private_key);
 
@@ -1074,7 +1100,7 @@ exited:
  * If base_topic is missing then the global_base_topic will be used (if available)
  *
  */
-int aclk_send_message(char *sub_topic, char *message, char *msg_id)
+int aclk_send_message_bin(char *sub_topic, const void *message, size_t len, char *msg_id)
 {
     int rc;
     int mid;
@@ -1098,7 +1124,7 @@ int aclk_send_message(char *sub_topic, char *message, char *msg_id)
     }
 
     ACLK_LOCK;
-    rc = _link_send_message(final_topic, (unsigned char *)message, &mid);
+    rc = _link_send_message(final_topic, message, len, &mid);
     // TODO: link the msg_id with the mid so we can trace it
     ACLK_UNLOCK;
 
@@ -1108,6 +1134,11 @@ int aclk_send_message(char *sub_topic, char *message, char *msg_id)
     }
 
     return rc;
+}
+
+int aclk_send_message(char *sub_topic, char *message, char *msg_id)
+{
+    return aclk_send_message_bin(sub_topic, message, strlen(message), msg_id);
 }
 
 /*
@@ -1196,7 +1227,7 @@ inline void aclk_create_header(BUFFER *dest, char *type, char *msg_id, time_t ts
 
     buffer_sprintf(
         dest,
-        "\t{\"type\": \"%s\",\n"
+        "{\t\"type\": \"%s\",\n"
         "\t\"msg-id\": \"%s\",\n"
         "\t\"timestamp\": %ld,\n"
         "\t\"timestamp-offset-usec\": %llu,\n"
@@ -1415,7 +1446,7 @@ int aclk_update_chart(RRDHOST *host, char *chart_name, ACLK_CMD aclk_cmd)
     if (aclk_popcorn_check_bump())
         return 0;
 
-    if (unlikely(aclk_queue_query("_chart", host->hostname, NULL, chart_name, 0, 1, aclk_cmd))) {
+    if (unlikely(aclk_queue_query("_chart", host, NULL, chart_name, 0, 1, aclk_cmd))) {
         if (likely(aclk_connected)) {
             errno = 0;
             error("ACLK failed to queue chart_update command");
@@ -1477,185 +1508,4 @@ int aclk_update_alarm(RRDHOST *host, ALARM_ENTRY *ae)
     buffer_free(local_buffer);
 
     return 0;
-}
-
-/*
- * Parse the incoming payload and queue a command if valid
- */
-static int aclk_handle_cloud_request(struct aclk_request *cloud_to_agent)
-{
-    errno = 0;
-    ACLK_SHARED_STATE_LOCK;
-    if (unlikely(aclk_shared_state.agent_state == AGENT_INITIALIZING)) {
-        debug(D_ACLK, "Ignoring \"http\" cloud request; agent not in stable state");
-        ACLK_SHARED_STATE_UNLOCK;
-        return 1;
-    }
-    ACLK_SHARED_STATE_UNLOCK;
-
-    if (unlikely(cloud_to_agent->version != aclk_shared_state.version_neg)) {
-        error("Received \"http\" message from Cloud with version %d, but ACLK version %d is used", cloud_to_agent->version, aclk_shared_state.version_neg);
-        return 1;
-    }
-
-    if (unlikely(!cloud_to_agent->payload)) {
-        error("payload missing");
-        return 1;
-    }
-    
-    if (unlikely(!cloud_to_agent->callback_topic)) {
-        error("callback_topic missing");
-        return 1;
-    }
-    
-    if (unlikely(!cloud_to_agent->msg_id)) {
-        error("msg_id missing");
-        return 1;
-    }
-
-    if (unlikely(aclk_queue_query(cloud_to_agent->callback_topic, NULL, cloud_to_agent->msg_id, cloud_to_agent->payload, 0, 0, ACLK_CMD_CLOUD)))
-        debug(D_ACLK, "ACLK failed to queue incoming \"http\" message");
-
-    // Note: the payload comes from the callback and it will be automatically freed
-    return 0;
-}
-
-// This handles `version` message from cloud used to negotiate
-// protocol version we will use
-static int aclk_handle_version_response(struct aclk_request *cloud_to_agent)
-{
-    int version = -1;
-    errno = 0;
-
-    if(unlikely(cloud_to_agent->version != ACLK_VERSION_NEG_VERSION)) {
-        error("Unsuported version of \"version\" message from cloud. Expected %d, Got %d", ACLK_VERSION_NEG_VERSION, cloud_to_agent->version);
-        return 1;
-    }
-    if(unlikely(!cloud_to_agent->min_version)) {
-        error("Min version missing or 0");
-        return 1;
-    }
-    if(unlikely(!cloud_to_agent->max_version)) {
-        error("Max version missing or 0");
-        return 1;
-    }
-    if(unlikely(cloud_to_agent->max_version < cloud_to_agent->min_version)) {
-        error("Max version (%d) must be >= than min version (%d)", cloud_to_agent->max_version, cloud_to_agent->min_version);
-        return 1;
-    }
-
-    if(unlikely(cloud_to_agent->min_version > ACLK_VERSION_MAX)) {
-        error("Agent too old for this cloud. Minimum version required by cloud %d. Maximum version supported by this agent %d.", cloud_to_agent->min_version, ACLK_VERSION_MAX);
-        aclk_kill_link = 1;
-        aclk_disable_runtime = 1;
-        return 1;
-    }
-    if(unlikely(cloud_to_agent->max_version < ACLK_VERSION_MIN)) {
-        error("Cloud version is too old for this agent. Maximum version supported by cloud %d. Minimum (oldest) version supported by this agent %d.", cloud_to_agent->max_version, ACLK_VERSION_MIN);
-        aclk_kill_link = 1;
-        return 1;
-    }
-
-    version = MIN(cloud_to_agent->max_version, ACLK_VERSION_MAX);
-
-    ACLK_SHARED_STATE_LOCK;
-    if (unlikely(now_monotonic_usec() > aclk_shared_state.version_neg_wait_till)) {
-        errno = 0;
-        error("The \"version\" message came too late ignoring.");
-        goto err_cleanup;
-    }
-    if (unlikely(aclk_shared_state.version_neg)) {
-        errno = 0;
-        error("Version has already been set to %d", aclk_shared_state.version_neg);
-        goto err_cleanup;
-    }
-    aclk_shared_state.version_neg = version;
-    ACLK_SHARED_STATE_UNLOCK;
-
-    info("Choosing version %d of ACLK", version);
-
-    return 0;
-
-err_cleanup:
-    ACLK_SHARED_STATE_UNLOCK;
-    return 1;
-}
-
-struct {
-    char *name;
-    int(*fnc)(struct aclk_request *cloud_to_agent);
-} aclk_incoming_msg_types[] = {
-    { .name = "http",    .fnc = aclk_handle_cloud_request    },
-    { .name = "version", .fnc = aclk_handle_version_response },
-    { .name = NULL,      .fnc = NULL                         }
-};
-
-int aclk_handle_cloud_message(char *payload)
-{
-    struct aclk_request cloud_to_agent;
-    memset(&cloud_to_agent, 0, sizeof(struct aclk_request));
-
-    if (aclk_stats_enabled) {
-        ACLK_STATS_LOCK;
-        aclk_metrics_per_sample.cloud_req_recvd++;
-        ACLK_STATS_UNLOCK;
-    }
-
-    if (unlikely(!payload)) {
-        errno = 0;
-        error("ACLK incoming message is empty");
-        goto err_cleanup_nojson;
-    }
-
-    debug(D_ACLK, "ACLK incoming message (%s)", payload);
-
-    int rc = json_parse(payload, &cloud_to_agent, cloud_to_agent_parse);
-
-    if (unlikely(rc != JSON_OK)) {
-        errno = 0;
-        error("Malformed json request (%s)", payload);
-        goto err_cleanup;
-    }
-
-    if (!cloud_to_agent.type_id) {
-        errno = 0;
-        error("Cloud message is missing compulsory key \"type\"");
-        goto err_cleanup;
-    }
-
-    for (int i = 0; aclk_incoming_msg_types[i].name; i++) {
-        if (strcmp(cloud_to_agent.type_id, aclk_incoming_msg_types[i].name) == 0) {
-            if (likely(!aclk_incoming_msg_types[i].fnc(&cloud_to_agent))) {
-                // in case of success handler is supposed to clean up after itself
-                // or as in the case of aclk_handle_cloud_request take
-                // ownership of the pointers (done to avoid copying)
-                // see what `aclk_queue_query` parameter `internal` does
-                freez(cloud_to_agent.type_id);
-                return 0;
-            }
-            goto err_cleanup;
-        }
-    }
-
-    errno = 0;
-    error("Unknown message type from Cloud \"%s\"", cloud_to_agent.type_id);
-
-err_cleanup:
-    if (cloud_to_agent.payload)
-        freez(cloud_to_agent.payload);
-    if (cloud_to_agent.type_id)
-        freez(cloud_to_agent.type_id);
-    if (cloud_to_agent.msg_id)
-        freez(cloud_to_agent.msg_id);
-    if (cloud_to_agent.callback_topic)
-        freez(cloud_to_agent.callback_topic);
-
-err_cleanup_nojson:
-    if (aclk_stats_enabled) {
-        ACLK_STATS_LOCK;
-        aclk_metrics_per_sample.cloud_req_err++;
-        ACLK_STATS_UNLOCK;
-    }
-
-    return 1;
 }

@@ -43,7 +43,6 @@ AC_PROG_INSTALL
 PKG_PROG_PKG_CONFIG
 AC_USE_SYSTEM_EXTENSIONS
 
-
 # -----------------------------------------------------------------------------
 # configurable options
 
@@ -173,6 +172,19 @@ AC_ARG_ENABLE(
     ,
     [enable_ebpf="detect"]
 )
+AC_ARG_WITH(
+    [bundled-lws],
+    [AS_HELP_STRING([--with-bundled-lws=DIR], [Use a specific Libwebsockets static library @<:@default use system library@:>@])],
+    [
+        with_bundled_lws="yes"
+        bundled_lws_dir="${withval}"
+    ],
+    [with_bundled_lws="no"]
+)
+
+# -----------------------------------------------------------------------------
+# Enforce building with C99, bail early if we can't.
+test "${ac_cv_prog_cc_c99}" = "no" && AC_MSG_ERROR([Netdata rquires a compiler that supports C99 to build])
 
 # -----------------------------------------------------------------------------
 # Check if cloud is enabled and if the functionality is available
@@ -329,7 +341,6 @@ AC_CHECK_LIB(
 )
 
 
-
 # -----------------------------------------------------------------------------
 # zlib
 
@@ -381,6 +392,9 @@ AC_CHECK_LIB(
     [ssl_host_validation="yes"],
     [ssl_host_validation="no"]
 )
+
+test -z "${SSL_LIBS}" || \
+    AC_DEFINE([HAVE_CRYPTO], [1], [libcrypto availability])
 
 if test "${ssl_host_validation}" = "no"; then
     AC_DEFINE([HAVE_X509_VERIFY_PARAM_set1_host], [0], [ssl host validation])
@@ -646,15 +660,27 @@ if test "$enable_cloud" != "no"; then
     fi
     AC_MSG_RESULT([${HAVE_libmosquitto_a}])
 
-    AC_MSG_CHECKING([if libwebsockets static lib is present])
-    if test -f "externaldeps/libwebsockets/libwebsockets.a"; then
-        LWS_CFLAGS="-I externaldeps/libwebsockets/include"
-        HAVE_libwebsockets_a="yes"
+    if test "${with_bundled_lws}" = "yes"; then
+        AC_MSG_CHECKING([if libwebsockets static lib is present])
+        if test -f "${bundled_lws_dir}/libwebsockets.a"; then
+            LWS_CFLAGS="-I ${bundled_lws_dir}/include"
+            OPTIONAL_LWS_LIBS="${bundled_lws_dir}/libwebsockets.a"
+            AC_MSG_RESULT([yes])
+            AC_DEFINE([BUNDLED_LWS], [1], [using statically linked libwebsockets])
+        else
+            AC_DEFINE([ACLK_NO_LWS], [1], [libwebsockets.a was not found during build.])
+            # this should be error if installer ever changes default to system
+            # as currently this is default we prefer building netdata without ACLK
+            # instead of error fail
+            AC_MSG_RESULT([no])
+            AC_MSG_WARN([You required static libwebsockets to be used but we can't use it. Disabling ACLK])
+        fi
     else
-        HAVE_libwebsockets_a="no"
-        AC_DEFINE([ACLK_NO_LWS], [1], [libwebsockets.a was not found during build.])
+        AC_CHECK_LIB([websockets],
+            [lws_get_vhost_by_name],
+            [OPTIONAL_LWS_LIBS="-lwebsockets"],
+            [AC_DEFINE([ACLK_NO_LWS], [1], [usable system libwebsockets was not found during build.])])
     fi
-    AC_MSG_RESULT([${HAVE_libwebsockets_a}])
 
     if test "${build_target}" = "linux" -a "${enable_cloud}" != "no"; then
         if test "${have_libcap}" = "yes" -a "${with_libcap}" = "no"; then
@@ -673,7 +699,7 @@ if test "$enable_cloud" != "no"; then
         AC_MSG_ERROR([You have asked for ACLK to be built but no json-c available. ACLK requires json-c])
 
     AC_MSG_CHECKING([if netdata agent-cloud-link can be enabled])
-    if test "${HAVE_libmosquitto_a}" = "yes" -a "${HAVE_libwebsockets_a}" = "yes" -a -n "${SSL_LIBS}" -a "${enable_jsonc}" = "yes"; then
+    if test "${HAVE_libmosquitto_a}" = "yes" -a -n "${OPTIONAL_LWS_LIBS}" -a -n "${SSL_LIBS}" -a "${enable_jsonc}" = "yes"; then
         can_enable_aclk="yes"
     else
         can_enable_aclk="no"
@@ -705,6 +731,7 @@ AM_CONDITIONAL([ENABLE_ACLK], [test "${enable_aclk}" = "yes"])
 
 AC_MSG_CHECKING([if apps.plugin should be enabled])
 if test "${build_target}" != "macos"; then
+    AC_DEFINE([ENABLE_APPS_PLUGIN], [1], [apps.plugin])
     enable_plugin_apps="yes"
 else
     enable_plugin_apps="no"
@@ -972,6 +999,7 @@ AC_CHECK_HEADER(
 
 AC_MSG_CHECKING([if perf.plugin should be enabled])
 if test "${build_target}" == "linux" -a "${have_perf_event}" = "yes"; then
+    AC_DEFINE([ENABLE_PERF_PLUGIN], [1], [perf.plugin])
     enable_plugin_perf="yes"
 else
     enable_plugin_perf="no"
@@ -982,36 +1010,38 @@ AM_CONDITIONAL([ENABLE_PLUGIN_PERF], [test "${enable_plugin_perf}" = "yes"])
 # -----------------------------------------------------------------------------
 # ebpf.plugin
 
-PKG_CHECK_MODULES(
-    [LIBELF],
-    [libelf],
-    [have_libelf=yes],
-    [have_libelf=no]
-)
+if test "${build_target}" = "linux" -a "${enable_ebpf}" != "no"; then
+    PKG_CHECK_MODULES(
+        [LIBELF],
+        [libelf],
+        [have_libelf=yes],
+        [have_libelf=no]
+    )
 
-AC_CHECK_TYPE(
-    [struct bpf_prog_info],
-    [have_bpf=yes],
-    [have_bpf=no],
-    [#include <linux/bpf.h>]
-)
+    AC_CHECK_TYPE(
+        [struct bpf_prog_info],
+        [have_bpf=yes],
+        [have_bpf=no],
+        [#include <linux/bpf.h>]
+    )
 
-AC_CHECK_FILE(
-    externaldeps/libbpf/libbpf.a,
-    [have_libbpf=yes],
-    [have_libbpf=no]
-)
+    AC_CHECK_FILE(
+        externaldeps/libbpf/libbpf.a,
+        [have_libbpf=yes],
+        [have_libbpf=no]
+    )
 
-AC_MSG_CHECKING([if ebpf.plugin should be enabled])
-if test "${build_target}" = "linux" -a \
-        "${enable_ebpf}" != "no" -a \
-        "${have_libelf}" = "yes" -a \
-        "${have_bpf}" = "yes" -a \
-        "${have_libbpf}" = "yes"; then
-    OPTIONAL_BPF_CFLAGS="${LIBELF_CFLAGS} -I externaldeps/libbpf/include"
-    OPTIONAL_BPF_LIBS="externaldeps/libbpf/libbpf.a ${LIBELF_LIBS}"
-    AC_DEFINE([HAVE_LIBBPF], [1], [libbpf usability])
-    enable_ebpf="yes"
+    AC_MSG_CHECKING([if ebpf.plugin should be enabled])
+    if test "${have_libelf}" = "yes" -a \
+            "${have_bpf}" = "yes" -a \
+            "${have_libbpf}" = "yes"; then
+        OPTIONAL_BPF_CFLAGS="${LIBELF_CFLAGS} -I externaldeps/libbpf/include"
+        OPTIONAL_BPF_LIBS="externaldeps/libbpf/libbpf.a ${LIBELF_LIBS}"
+        AC_DEFINE([HAVE_LIBBPF], [1], [libbpf usability])
+        enable_ebpf="yes"
+    else
+        enable_ebpf="no"
+    fi
 else
     enable_ebpf="no"
 fi
@@ -1023,6 +1053,7 @@ AM_CONDITIONAL([ENABLE_PLUGIN_EBPF], [test "${enable_ebpf}" = "yes"])
 
 AC_MSG_CHECKING([if slabinfo.plugin should be enabled])
 if test "${build_target}" == "linux"; then
+    AC_DEFINE([ENABLE_SLABINFO], [1], [slabinfo plugin])
     enable_plugin_slabinfo="yes"
 else
     enable_plugin_slabinfo="no"
@@ -1070,46 +1101,45 @@ PKG_CHECK_MODULES(
     [have_libcurl=no]
 )
 
-AC_CHECK_LIB(
+PKG_CHECK_MODULES(
+    [AWS_CPP_SDK_CORE],
     [aws-cpp-sdk-core],
-    [cJSON_free],
-    [have_libaws_cpp_sdk_core=yes],
-    [have_libaws_cpp_sdk_core=no],
-    [${LIBCRYPTO_LIBS} ${LIBSSL_LIBS} ${LIBCURL_LIBS}]
+    [AC_CHECK_LIB(
+        [aws-cpp-sdk-core],
+        [cJSON_free],
+        [have_libaws_cpp_sdk_core=yes],
+        [have_libaws_cpp_sdk_core=no]
+    )],
+    [have_libaws_cpp_sdk_core=no]
 )
 
-AC_MSG_CHECKING([for Aws::Kinesis::Model::PutRecordRequest in -laws-cpp-sdk-kinesis])
+PKG_CHECK_MODULES(
+    [AWS_CPP_SDK_KINESIS],
+    [aws-cpp-sdk-kinesis],
+    [have_libaws_cpp_sdk_kinesis=yes],
+    [have_libaws_cpp_sdk_kinesis=no]
+)
 
-if test "${have_libaws_cpp_sdk_core}" = "yes" -a "${have_libcrypto}" = "yes" -a "${have_libssl}" = "yes" -a "${have_libcurl}" = "yes"; then
-    AC_LANG_SAVE
-    AC_LANG_CPLUSPLUS
-    save_LIBS="${LIBS}"
-    LIBS="-laws-cpp-sdk-kinesis -laws-cpp-sdk-core ${LIBCRYPTO_LIBS} ${LIBSSL_LIBS} ${LIBCURL_LIBS}"
-    save_CXXFLAGS="${CXXFLAGS}"
-    CXXFLAGS="${CXXFLAGS} -std=c++11"
+AC_CHECK_LIB(
+    [aws-checksums],
+    [aws_checksums_crc32],
+    [have_libaws_checksums=yes],
+    [have_libaws_checksums=no]
+)
 
-    AC_TRY_LINK(
-        [
-            #include <aws/core/Aws.h>
-            #include <aws/core/client/ClientConfiguration.h>
-            #include <aws/core/auth/AWSCredentials.h>
-            #include <aws/core/utils/Outcome.h>
-            #include <aws/kinesis/KinesisClient.h>
-            #include <aws/kinesis/model/PutRecordRequest.h>
-        ],
-        [Aws::Kinesis::Model::PutRecordRequest request;],
-        [have_libaws_cpp_sdk_kinesis=yes],
-        [have_libaws_cpp_sdk_kinesis=no]
-    )
+AC_CHECK_LIB(
+    [aws-c-common],
+    [aws_default_allocator],
+    [have_libaws_c_common=yes],
+    [have_libaws_c_common=no]
+)
 
-    LIBS="${save_LIBS}"
-    CXXFLAGS="${save_CXXFLAGS}"
-    AC_LANG_RESTORE
-else
-    have_libaws_cpp_sdk_kinesis=no
-fi
-
-AC_MSG_RESULT([${have_libaws_cpp_sdk_kinesis}])
+AC_CHECK_LIB(
+    [aws-c-event-stream],
+    [aws_event_stream_library_init],
+    [have_libaws_c_event_stream=yes],
+    [have_libaws_c_event_stream=no]
+)
 
 test "${enable_backend_kinesis}" = "yes" -a "${have_libaws_cpp_sdk_kinesis}" != "yes" && \
     AC_MSG_ERROR([libaws-cpp-sdk-kinesis required but not found. try installing AWS C++ SDK])
@@ -1126,14 +1156,26 @@ test "${enable_backend_kinesis}" = "yes" -a "${have_libssl}" != "yes" && \
 test "${enable_backend_kinesis}" = "yes" -a "${have_libcrypto}" != "yes" && \
     AC_MSG_ERROR([libcrypto required but not found])
 
+test "${enable_backend_kinesis}" = "yes" -a "${have_libaws_checksums}" != "yes" \
+                                         -a "${have_libaws_c_common}" != "yes" \
+                                         -a "${have_libaws_c_event_stream}" != "yes" && \
+    AC_MSG_ERROR([AWS SKD third party dependencies required but not found])
+
 AC_MSG_CHECKING([if kinesis backend should be enabled])
-if test "${enable_backend_kinesis}" != "no" -a "${have_libaws_cpp_sdk_kinesis}" = "yes" -a "${have_libaws_cpp_sdk_core}" = "yes" \
-                                            -a "${have_libcurl}" = "yes" -a "${have_libssl}" = "yes" -a "${have_libcrypto}" = "yes"; then
+if test "${enable_backend_kinesis}" != "no" -a "${have_libaws_cpp_sdk_kinesis}" = "yes" \
+                                            -a "${have_libaws_cpp_sdk_core}" = "yes" \
+                                            -a "${have_libaws_checksums}" = "yes" \
+                                            -a "${have_libaws_c_common}" = "yes" \
+                                            -a "${have_libaws_c_event_stream}" = "yes" \
+                                            -a "${have_libcurl}" = "yes" \
+                                            -a "${have_libssl}" = "yes" \
+                                            -a "${have_libcrypto}" = "yes"; then
     enable_backend_kinesis="yes"
     AC_DEFINE([HAVE_KINESIS], [1], [libaws-cpp-sdk-kinesis usability])
     OPTIONAL_KINESIS_CFLAGS="${LIBCRYPTO_CFLAGS} ${LIBSSL_CFLAGS} ${LIBCURL_CFLAGS}"
-    CXX11FLAG="-std=c++11"
-    OPTIONAL_KINESIS_LIBS="-laws-cpp-sdk-kinesis -laws-cpp-sdk-core ${LIBCRYPTO_LIBS} ${LIBSSL_LIBS} ${LIBCURL_LIBS}"
+    CXX11FLAG="${AWS_CPP_SDK_KINESIS_CFLAGS} ${AWS_CPP_SDK_CORE_CFLAGS}"
+    OPTIONAL_KINESIS_LIBS="${AWS_CPP_SDK_KINESIS_LIBS} ${AWS_CPP_SDK_CORE_LIBS} \
+                           ${LIBCRYPTO_LIBS} ${LIBSSL_LIBS} ${LIBCURL_LIBS}"
 else
     enable_backend_kinesis="no"
 fi
@@ -1431,6 +1473,7 @@ AC_SUBST([OPTIONAL_PROMETHEUS_REMOTE_WRITE_CFLAGS])
 AC_SUBST([OPTIONAL_PROMETHEUS_REMOTE_WRITE_LIBS])
 AC_SUBST([OPTIONAL_MONGOC_CFLAGS])
 AC_SUBST([OPTIONAL_MONGOC_LIBS])
+AC_SUBST([OPTIONAL_LWS_LIBS])
 
 # -----------------------------------------------------------------------------
 # Check if cmocka is available - needed for unit testing
@@ -1458,6 +1501,14 @@ TEST_LIBS="${CMOCKA_LIBS}"
 
 AC_SUBST([TEST_CFLAGS])
 AC_SUBST([TEST_LIBS])
+
+# -----------------------------------------------------------------------------
+# save configure options for build info
+AC_DEFINE_UNQUOTED(
+    [CONFIGURE_COMMAND],
+    ["$ac_configure_args"],
+    [options passed to configure script]
+)
 
 AC_CONFIG_FILES([
     Makefile
