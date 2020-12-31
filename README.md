@@ -1,6 +1,6 @@
 <p align="center"><a href="https://netdata.cloud"><img src="https://user-images.githubusercontent.com/1153921/95268672-a3665100-07ec-11eb-8078-db619486d6ad.png" alt="Netdata" width="300" /></a></p>
 
-<h3 align="center">The best monitoring and troubleshooting for systems, containers, applications, and infrastructure. <br />Preconfigured, opinionated, and always real-time.</h3>
+<h3 align="center">Netdata is high-fidelity infrastructure monitoring and troubleshooting.<br />Open-source, free, preconfigured, opinionated, and always real-time.</h3>
 <br />
 <p align="center">
   <a href="https://github.com/netdata/netdata/releases/latest"><img src="https://img.shields.io/github/release/netdata/netdata.svg" alt="Latest release"></a>
@@ -20,7 +20,8 @@
 
 Netdata's **distributed, real-time monitoring Agent** collects thousands of metrics from systems, hardware, containers,
 and applications with zero configuration. It runs permanently on all your physical/virtual servers, containers, cloud
-deployments, and edge/IoT devices.
+deployments, and edge/IoT devices, and is perfectly safe to install on your systems mid-incident without any
+preparation.
 
 You can install Netdata on most Linux distributions (Ubuntu, Debian, CentOS, and more), container platforms (Kubernetes
 clusters, Docker), and many other operating systems (FreeBSD, macOS). No `sudo` required.
@@ -33,12 +34,17 @@ People get addicted to Netdata. Once you use it on your systems, there's no goin
 ![Users who are addicted to
 Netdata](https://user-images.githubusercontent.com/1153921/96495792-2e881380-11fd-11eb-85a3-53d3a84dcb29.png)
 
-> **[Latest release](https://github.com/netdata/netdata/releases/latest): v1.26.0, October 14, 2020**
+> **[Latest release](https://github.com/netdata/netdata/releases/latest): v1.28.0, December 18, 2020**
 >
-> The v1.26.0 release of the Netdata Agent brings exciting new collectors written in Go, a new integration with the
-> DevOps startup StackPulse, and massive improvements to the way users navigate Netdata's documentation. We've also
-> added compatibility with an exciting new feature that's coming soon to Netdata Cloud—stay tuned! This release contains
-> 3 new collectors, 1 new notifcation method, 21 improvements, 13 documentation updates, and 12 bug fixes.
+> Release v1.28.0 is a hotfix release to address a deadlock in the Netdata Agent. We intended to release this hotfix as 
+> v1.27.1, but we can't backtrack on a release once we've begun to publish new Docker images and binary packages on 
+> other platforms.
+>
+> **v1.27.0, December 17, 2020**
+>
+> The v1.27.0 release of the Netdata Agent brings dramatic improvements to long-term metrics storage via the database 
+> engine, and new dashboard features like a time & date picker for visualizing precise timeframes. Two new collectors 
+> bring incredible new value to existing features, including a bit of machine learning magic.
 
 ## Menu
 
@@ -54,7 +60,7 @@ Netdata](https://user-images.githubusercontent.com/1153921/96495792-2e881380-11f
 ## Features
 
 ![Netdata in
-action](https://user-images.githubusercontent.com/1153921/95625372-40afc800-0a2d-11eb-8425-3355c8c4a3f3.gif)
+action](https://user-images.githubusercontent.com/1153921/101513938-fae28380-3939-11eb-9434-8ad86a39be62.gif)
 
 Here's what you can expect from Netdata:
 
