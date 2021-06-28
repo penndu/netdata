@@ -34,23 +34,21 @@ People get addicted to Netdata. Once you use it on your systems, there's no goin
 ![Users who are addicted to
 Netdata](https://user-images.githubusercontent.com/1153921/96495792-2e881380-11fd-11eb-85a3-53d3a84dcb29.png)
 
-> **[Latest release](https://github.com/netdata/netdata/releases/latest): v1.28.0, December 18, 2020**
+> **[Latest release](https://github.com/netdata/netdata/releases/latest): v1.31.0, May 19, 2021**
 >
-> Release v1.28.0 is a hotfix release to address a deadlock in the Netdata Agent. We intended to release this hotfix as 
-> v1.27.1, but we can't backtrack on a release once we've begun to publish new Docker images and binary packages on 
-> other platforms.
->
-> **v1.27.0, December 17, 2020**
->
-> The v1.27.0 release of the Netdata Agent brings dramatic improvements to long-term metrics storage via the database 
-> engine, and new dashboard features like a time & date picker for visualizing precise timeframes. Two new collectors 
-> bring incredible new value to existing features, including a bit of machine learning magic.
+> The v1.31.0 release of Netdata comes with re-packaged and redesigned elements of the dashboard to help you focus on
+> your metrics, even more Linux kernel insights via eBPF, on-node machine learning to help you find anomalies, and much
+> more.
 
 ## Menu
 
 - [Features](#features)
 - [Get Netdata](#get-netdata)
+  - [Docker](#docker)
+  - [Other operating systems](#other-operating-systems)
+  - [Post-installation](#post-installation)
 - [How it works](#how-it-works)
+- [Infographic](#infographic)
 - [Documentation](#documentation)
 - [Community](#community)
 - [Contribute](#contribute)
@@ -60,7 +58,7 @@ Netdata](https://user-images.githubusercontent.com/1153921/96495792-2e881380-11f
 ## Features
 
 ![Netdata in
-action](https://user-images.githubusercontent.com/1153921/101513938-fae28380-3939-11eb-9434-8ad86a39be62.gif)
+action](https://user-images.githubusercontent.com/1153921/113440964-449c2180-93a2-11eb-9664-663afa1257a8.gif)
 
 Here's what you can expect from Netdata:
 
@@ -160,10 +158,14 @@ packages](/packaging/installer/methods/packages.md), and more.
 
 ### Post-installation
 
-When you're finished with installation, check out our
-[single-node](https://learn.netdata.cloud/docs/quickstart/single-node) or
-[infrastructure](https://learn.netdata.cloud/docs/quickstart/infrastructure) monitoring quickstart guides based on your
-use case. Then, see our [documentation](https://learn.netdata.cloud/docs) for the full picture.
+When you're finished with installation, check out our [single-node](/docs/quickstart/single-node.md) or
+[infrastructure](/docs/quickstart/infrastructure.md) monitoring quickstart guides based on your use case.
+
+Or, skip straight to [configuring the Netdata Agent](/docs/configure/nodes.md).
+
+Read through Netdata's [documentation](https://learn.netdata.cloud/docs), which is structured based on actions and
+solutions, to enable features like health monitoring, alarm notifications, long-term metrics storage, exporting to
+external databases, and more.
 
 ## How it works
 
@@ -192,11 +194,14 @@ to collect metrics, troubleshoot via charts, export to external databases, and m
 
 ## Community
 
-You can find most of the Netdata team in our [community forum](https://community.netdata.cloud). It's the best place to
-ask questions, find resources, and get to know the Netdata team.
+Netdata is an inclusive open-source project and community. Please read our [Code of Conduct](https://learn.netdata.cloud/contribute/code-of-conduct).
+
+Find most of the Netdata team in our [community forums](https://community.netdata.cloud). It's the best place to
+ask questions, find resources, and engage with passionate professionals.
 
 You can also find Netdata on:
 
+-   [Reddit](https://www.reddit.com/r/netdata/)
 -   [Facebook](https://www.facebook.com/linuxnetdata/)
 -   [Twitter](https://twitter.com/linuxnetdata)
 -   [StackShare](https://stackshare.io/netdata)
@@ -205,10 +210,12 @@ You can also find Netdata on:
 
 ## Contribute
 
-We welcome [contributions](/CONTRIBUTING.md) to our code and to our
-[documentation](/docs/contributing/contributing-documentation.md). Feel free to join the team!
+Contributions are the lifeblood of open-source projects. While we continue to invest in and improve Netdata, we need help to democratize monitoring!
 
-To report bugs or get help, use [GitHub's issues](https://github.com/netdata/netdata/issues).
+- Read our [Contributing Guide](https://learn.netdata.cloud/contribute/handbook), which contains all the information you need to contribute to Netdata, such as improving our documentation, engaging in the community, and developing new features. We've made it as frictionless as possible, but if you need help, just ping us on our community forums!
+- We have a whole category dedicated to contributing and extending Netdata on our [community forums](https://community.netdata.cloud/c/agent-development/9)
+- Found a bug? Open a [GitHub issue](https://github.com/netdata/netdata/issues/new?assignees=&labels=bug%2C+needs+triage&template=bug_report.md).
+- View our [Security Policy](https://github.com/netdata/netdata/security/policy).
 
 Package maintainers should read the guide on [building Netdata from source](/packaging/installer/methods/source.md) for
 instructions on building each Netdata component from source and preparing a package.
@@ -227,5 +234,3 @@ _When people first hear about a new product, they frequently ask if it is any go
 
 > Note to self: Starting immediately, all raganwald projects will have a “Is it any good?” section in the readme, and
 > the answer shall be “yes.".
-
-So, we follow the tradition...

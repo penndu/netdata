@@ -8,6 +8,7 @@ env:
   run_hadolint: 0
   run_shellcheck: 0
   run_yamllint: 0
+  DO_NOT_TRACK: 1
 jobs:
   eslint:
     name: eslint
@@ -16,6 +17,7 @@ jobs:
       - name: Git clone repository
         uses: actions/checkout@v2
         with:
+          submodules: recursive
           fetch-depth: 0
       - name: Check files
         run: |
@@ -57,6 +59,7 @@ jobs:
       - name: Git clone repository
         uses: actions/checkout@v2
         with:
+          submodules: recursive
           fetch-depth: 0
       - name: Check files
         run: |
@@ -80,6 +83,7 @@ jobs:
       - name: Git clone repository
         uses: actions/checkout@v2
         with:
+          submodules: recursive
           fetch-depth: 0
       - name: Check files
         run: |

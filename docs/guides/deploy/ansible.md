@@ -1,15 +1,15 @@
 <!--
 title: Deploy Netdata with Ansible
-description: Deploy an infrastructure monitoring solution in minutes with the Netdata Agent and Ansible. Use and customize a simple playbook for monitoring as code.
+description: "Deploy an infrastructure monitoring solution in minutes with the Netdata Agent and Ansible. Use and customize a simple playbook for monitoring as code."
 image: /img/seo/guides/deploy/ansible.png
 custom_edit_url: https://github.com/netdata/netdata/edit/master/docs/guides/deploy/ansible.md
 -->
 
 # Deploy Netdata with Ansible
 
-Netdata's [one-line kickstart](https://learn.netdata.cloud/docs/get) is zero-configuration, highly adaptable, and
-compatible with tons of different operating systems and Linux distributions. You can use it on bare metal, VMs,
-containers, and everything in-between.
+Netdata's [one-line kickstart](/docs/get-started.mdx) is zero-configuration, highly adaptable, and compatible with tons
+of different operating systems and Linux distributions. You can use it on bare metal, VMs, containers, and everything
+in-between.
 
 But what if you're trying to bootstrap an infrastructure monitoring solution as quickly as possible. What if you need to
 deploy Netdata across an entire infrastructure with many nodes? What if you want to make this deployment reliable,

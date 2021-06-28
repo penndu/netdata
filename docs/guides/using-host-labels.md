@@ -27,7 +27,7 @@ sudo ./edit-config netdata.conf
 ```
 
 Create a new `[host labels]` section defining a new host label and its value for the system in question. Make sure not
-to violate any of the [host label naming rules](/docs/configuration-guide.md#netdata-labels).
+to violate any of the [host label naming rules](/docs/configure/common-changes.md#organize-nodes-with-host-labels).
 
 ```conf
 [host labels]
@@ -50,6 +50,7 @@ read the status of your agent. For example, from a VPS system running Debian 10:
 {
   ...
   "host_labels": {
+    "_is_k8s_node": "false",
     "_is_parent": "false",
     "_virt_detection": "systemd-detect-virt",
     "_container_detection": "none",
@@ -81,6 +82,7 @@ They capture the following:
 -   Operating system name and version
 -   CPU architecture, system cores, CPU frequency, RAM, and disk space
 -   Whether Netdata is running inside of a container, and if so, the OS and hardware details about the container's host
+-   Whether Netdata is running inside K8s node 
 -   What virtualization layer the system runs on top of, if any
 -   Whether the system is a streaming parent or child
 

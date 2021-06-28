@@ -51,6 +51,8 @@ char *netdata_configured_host_prefix = "";
 
 int running = 1;
 int debug = 0;
+size_t lines_discovered = 0;
+int redraw_chart = 0;
 
 // ----------------------------------------------------------------------------
 
@@ -126,7 +128,7 @@ static struct slabinfo *get_slabstruct(const char *name) {
         }
     }
 
-    // Search it from the begining to the last position we used
+    // Search it from the beginning to the last position we used
     for (s = slabinfo_root; s != slabinfo_last_used; s = s->next) {
         if (hash == s->hash && !strcmp(name, s->name)) {
             slabdebug("<-- Found existing slabstruct after root %s", slabinfo_root->name);
@@ -141,7 +143,7 @@ static struct slabinfo *get_slabstruct(const char *name) {
     s->name = strdupz(name);
     s->hash = hash;
 
-    // Add it to the current postion
+    // Add it to the current position
     if (slabinfo_root) {
         slabdebug("<-- Creating new slabstruct after %s", slabinfo_last_used->name);
         s->next = slabinfo_last_used->next;
@@ -187,6 +189,10 @@ struct slabinfo *read_file_slabinfo() {
 
     // Iterate on all lines to populate / update the slabinfo struct
     size_t lines = procfile_lines(ff), l;
+    if (unlikely(lines != lines_discovered)) {
+        lines_discovered = lines;
+        redraw_chart = 1;
+    }
 
     slabdebug("   Read %lu lines from procfile", (unsigned long)lines);
     for(l = 2; l < lines; l++) {
@@ -254,7 +260,8 @@ unsigned int do_slab_stats(int update_every) {
         sactive = read_file_slabinfo();
 
         // Init Charts
-        if (unlikely(loops == 0)) {
+        if (unlikely(redraw_chart)) {
+            redraw_chart = 0;
             // Memory Usage
             printf("CHART %s.%s '' 'Memory Usage' 'B' '%s' '' line %d %d %s\n"
                 , CHART_TYPE
