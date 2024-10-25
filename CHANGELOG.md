@@ -2,10 +2,20 @@
 
 ## [**Next release**](https://github.com/netdata/netdata/tree/HEAD)
 
-[Full Changelog](https://github.com/netdata/netdata/compare/v1.47.4...HEAD)
+[Full Changelog](https://github.com/netdata/netdata/compare/v1.47.5...HEAD)
 
 **Merged pull requests:**
 
+- Prevent memory corruption during ACLK OTP decode [\#18863](https://github.com/netdata/netdata/pull/18863) ([stelfrag](https://github.com/stelfrag))
+- Do not build H2O by default. [\#18861](https://github.com/netdata/netdata/pull/18861) ([vkalintiris](https://github.com/vkalintiris))
+- Regenerate integrations.js [\#18860](https://github.com/netdata/netdata/pull/18860) ([netdatabot](https://github.com/netdatabot))
+- feat\(go.d.plugin\): add MaxScale collector [\#18859](https://github.com/netdata/netdata/pull/18859) ([ilyam8](https://github.com/ilyam8))
+- fix\(apps.plugin\): add tini to Linux managers [\#18856](https://github.com/netdata/netdata/pull/18856) ([ilyam8](https://github.com/ilyam8))
+- feat\(proc/numa\): add numa node mem activity [\#18855](https://github.com/netdata/netdata/pull/18855) ([ilyam8](https://github.com/ilyam8))
+- build\(deps\): bump github.com/vmware/govmomi from 0.44.1 to 0.45.0 in /src/go [\#18854](https://github.com/netdata/netdata/pull/18854) ([dependabot[bot]](https://github.com/apps/dependabot))
+- chore\(ci\): print versions in check\_successful\_update [\#18853](https://github.com/netdata/netdata/pull/18853) ([ilyam8](https://github.com/ilyam8))
+- Regenerate integrations.js [\#18852](https://github.com/netdata/netdata/pull/18852) ([netdatabot](https://github.com/netdatabot))
+- Make integration links absolute [\#18851](https://github.com/netdata/netdata/pull/18851) ([Ancairon](https://github.com/Ancairon))
 - fix\(packaging\): check for sys/capability.h only on Linux [\#18849](https://github.com/netdata/netdata/pull/18849) ([ilyam8](https://github.com/ilyam8))
 - feat\(go.d/sd/nl\): make timeout and interval configurable [\#18847](https://github.com/netdata/netdata/pull/18847) ([ilyam8](https://github.com/ilyam8))
 - fix\(packaging\): fix installing libcurl\_dev on FreeBSD [\#18845](https://github.com/netdata/netdata/pull/18845) ([ilyam8](https://github.com/ilyam8))
@@ -52,6 +62,7 @@
 - Add ref to dyncfg [\#18793](https://github.com/netdata/netdata/pull/18793) ([Ancairon](https://github.com/Ancairon))
 - systemd-journal; support querying archived files [\#18792](https://github.com/netdata/netdata/pull/18792) ([ktsaou](https://github.com/ktsaou))
 - Ιmplementation to add logs integrations [\#18791](https://github.com/netdata/netdata/pull/18791) ([Ancairon](https://github.com/Ancairon))
+- Do not load/save context data in RAM mode [\#18790](https://github.com/netdata/netdata/pull/18790) ([stelfrag](https://github.com/stelfrag))
 - Fix broken claiming via kickstart on some systems. [\#18789](https://github.com/netdata/netdata/pull/18789) ([Ferroin](https://github.com/Ferroin))
 - Fix atomic builtins test that currently fails for llvm+compiler\_rt when gcc is not present [\#18788](https://github.com/netdata/netdata/pull/18788) ([StormBytePP](https://github.com/StormBytePP))
 - fix\(netdata-updater.sh\): ensure `--non-interactive` flag is passed during self-update [\#18786](https://github.com/netdata/netdata/pull/18786) ([ilyam8](https://github.com/ilyam8))
@@ -165,6 +176,7 @@
 - fixed freebsd cpu calculation [\#18648](https://github.com/netdata/netdata/pull/18648) ([ktsaou](https://github.com/ktsaou))
 - Regenerate integrations.js [\#18647](https://github.com/netdata/netdata/pull/18647) ([netdatabot](https://github.com/netdatabot))
 - Use temporary file for commit date check. [\#18646](https://github.com/netdata/netdata/pull/18646) ([Ferroin](https://github.com/Ferroin))
+- Reorganize top-level headers in libnetdata. [\#18643](https://github.com/netdata/netdata/pull/18643) ([vkalintiris](https://github.com/vkalintiris))
 - New wording about edit-config script in docs [\#18639](https://github.com/netdata/netdata/pull/18639) ([Ancairon](https://github.com/Ancairon))
 - Update file names. [\#18638](https://github.com/netdata/netdata/pull/18638) ([vkalintiris](https://github.com/vkalintiris))
 - Move plugins.d directory outside of collectors [\#18637](https://github.com/netdata/netdata/pull/18637) ([vkalintiris](https://github.com/vkalintiris))
@@ -347,6 +359,10 @@
 - remove python.d/boinc [\#18397](https://github.com/netdata/netdata/pull/18397) ([ilyam8](https://github.com/ilyam8))
 - fix warnings in Dockerfile [\#18395](https://github.com/netdata/netdata/pull/18395) ([NicolasCARPi](https://github.com/NicolasCARPi))
 
+## [v1.47.5](https://github.com/netdata/netdata/tree/v1.47.5) (2024-10-24)
+
+[Full Changelog](https://github.com/netdata/netdata/compare/v1.47.4...v1.47.5)
+
 ## [v1.47.4](https://github.com/netdata/netdata/tree/v1.47.4) (2024-10-09)
 
 [Full Changelog](https://github.com/netdata/netdata/compare/v1.47.3...v1.47.4)
@@ -430,17 +446,6 @@
 - Regenerate integrations.js [\#18317](https://github.com/netdata/netdata/pull/18317) ([netdatabot](https://github.com/netdatabot))
 - remove python.d/nvidia\_smi [\#18316](https://github.com/netdata/netdata/pull/18316) ([ilyam8](https://github.com/ilyam8))
 - go.d nvidia\_smi: enable by default [\#18315](https://github.com/netdata/netdata/pull/18315) ([ilyam8](https://github.com/ilyam8))
-- go.d nvidia\_smi: add loop mode [\#18313](https://github.com/netdata/netdata/pull/18313) ([ilyam8](https://github.com/ilyam8))
-- Regenerate integrations.js [\#18312](https://github.com/netdata/netdata/pull/18312) ([netdatabot](https://github.com/netdatabot))
-- go.d nvidia\_smi remove "csv" mode [\#18311](https://github.com/netdata/netdata/pull/18311) ([ilyam8](https://github.com/ilyam8))
-- Regenerate integrations.js [\#18308](https://github.com/netdata/netdata/pull/18308) ([netdatabot](https://github.com/netdatabot))
-- add go.d/exim [\#18306](https://github.com/netdata/netdata/pull/18306) ([ilyam8](https://github.com/ilyam8))
-- remove python.d/exim [\#18305](https://github.com/netdata/netdata/pull/18305) ([ilyam8](https://github.com/ilyam8))
-- add exim to ndsudo [\#18304](https://github.com/netdata/netdata/pull/18304) ([ilyam8](https://github.com/ilyam8))
-- Regenerate integrations.js [\#18303](https://github.com/netdata/netdata/pull/18303) ([netdatabot](https://github.com/netdatabot))
-- add go.d/nsd [\#18302](https://github.com/netdata/netdata/pull/18302) ([ilyam8](https://github.com/ilyam8))
-- add nsd-control to ndsudo [\#18301](https://github.com/netdata/netdata/pull/18301) ([ilyam8](https://github.com/ilyam8))
-- remove python.d/nsd [\#18300](https://github.com/netdata/netdata/pull/18300) ([ilyam8](https://github.com/ilyam8))
 
 ## [v1.46.3](https://github.com/netdata/netdata/tree/v1.46.3) (2024-07-23)
 

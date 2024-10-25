@@ -25,7 +25,7 @@ This collector monitors the overall health status and performance of your Ceph c
 It gathers key metrics for the entire cluster, individual Pools, and OSDs.
 
 
-It collects metrics by periodically issuing HTTP GET requests to the Ceph Manager [RESP API](https://docs.ceph.com/en/reef/mgr/ceph_api/#):
+It collects metrics by periodically issuing HTTP GET requests to the Ceph Manager [REST API](https://docs.ceph.com/en/reef/mgr/ceph_api/#):
 
 - [/api/monitor](https://docs.ceph.com/en/reef/mgr/ceph_api/#get--api-monitor) (only once to get the Ceph cluster id (fsid))          
 - [/api/health/minimal](https://docs.ceph.com/en/reef/mgr/ceph_api/#get--api-health-minimal)
@@ -49,7 +49,7 @@ The collector can automatically detect Ceph Manager instances running on:
 - localhost that are listening on port 8443
 - within Docker containers
 
-> **Note that the Ceph RESP API requires a username and password**. 
+> **Note that the Ceph REST API requires a username and password**. 
 > While Netdata can automatically detect Ceph Manager instances and create data collection jobs, these jobs will fail unless you provide the necessary credentials.
 
 
@@ -171,8 +171,8 @@ No action required.
 The configuration file name for this integration is `go.d/ceph.conf`.
 
 
-You can edit the configuration file using the [`edit-config`](/docs/netdata-agent/configuration/README.md#edit-a-configuration-file-using-edit-config) script from the
-Netdata [config directory](/docs/netdata-agent/configuration/README.md#the-netdata-config-directory).
+You can edit the configuration file using the [`edit-config`](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#edit-a-configuration-file-using-edit-config) script from the
+Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#the-netdata-config-directory).
 
 ```bash
 cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
